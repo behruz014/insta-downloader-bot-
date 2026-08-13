@@ -1,0 +1,73 @@
+import os
+import logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import yt_dlp
+
+# Loglarni sozlash
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+# Sizning Telegram Bot Tokeningiz
+BOT_TOKEN = "8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs"
+
+# Start komandasi uchun
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Salom! Men Instagram videolarini yuklab beruvchi botman. 🚀\n\n"
+        "Menga Instagram Reel yoki video havolasini (linkini) yuboring!"
+    )
+
+# Instagram videosini yuklash va yuborish
+async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    
+    # Faqat instagram havolalarini tekshirish
+    if "instagram.com" not in url:
+        return
+
+    msg = await update.message.reply_text("⏳ Video yuklanmoqda, kuting...")
+
+    # yt-dlp sozlamalari
+    ydl_opts = {
+        'format': 'bestvideo+bestaudio/best',
+        'outtmpl': 'video_%(id)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
+    }
+
+    file_path = None
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+
+        # Videoni foydalanuvchiga yuborish
+        with open(file_path, 'rb') as video_file:
+            await update.message.reply_video(video=video_file, caption="✅ Video yuklab olindi!")
+        
+        # Boshlang'ich xabarni o'chirish
+        await msg.delete()
+
+    except Exception as e:
+        logging.error(f"Xatolik: {e}")
+        await msg.edit_text("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini yoki video ochiq profilnikimi ekanligini tekshiring.")
+
+    finally:
+        # Serverda joy egallamasligi uchun videoni o'chirib tashlash
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
+
+    print("Bot ishga tushdi...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
