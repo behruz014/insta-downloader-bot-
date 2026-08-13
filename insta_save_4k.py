@@ -19,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render platformasi uchib qolmasligi uchun HTTP server
+# Render platformasining "sleep" rejimiga o'tib qolmasligi uchun HTTP server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -66,7 +66,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Admin panel
+# Admin panel (/admin behruz700)
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
@@ -81,7 +81,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Broadcast
+# Broadcast (/broadcast behruz700 Xabar)
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
@@ -104,7 +104,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Xabar **{count}** ta foydalanuvchiga yuborildi.", parse_mode="Markdown")
 
-# Xabarlarni qabul qilish
+# Xabarlarni qabul qilish va ulash
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     save_user(user_id)
@@ -112,7 +112,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     supported = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
-    # Link kelganda (Video yuklash)
+    # 1. Link kelganda (Instagram, TikTok, YouTube video yuklash)
     if any(domain in text for domain in supported):
         msg = await update.message.reply_text("⏳ *Media yuklanmoqda, kuting...*", parse_mode="Markdown")
         video_file_path = None
@@ -148,7 +148,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if video_file_path and os.path.exists(video_file_path):
                 os.remove(video_file_path)
 
-    # Qo'shiq nomi kelganda (Musiqa qidiruv)
+    # 2. Qo'shiq nomi kelganda (Musiqa qidiruv va yuklash)
     else:
         msg = await update.message.reply_text(f"🔍 **«{text}»** musiqasi qidirilmoqda...", parse_mode="Markdown")
         file_path = None
