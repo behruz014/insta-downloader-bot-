@@ -28,17 +28,16 @@ logging.basicConfig(
 logger = logging.getLogger("InstaSaveBot")
 
 # ============================================================================
-# API TOKEN VA PAROL (Yangi tokeningiz joylandi)
+# API TOKEN VA PAROL
 # ============================================================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAE9-vTG79Rn40jU2lk1QY1fBEeWpmGQV5Q")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
 
 DB_FILE = "bot.db"
-MAX_FILE_SIZE_MB = 50          # Render bepul tarifida disk cheklangan
-PLAYLIST_LIMIT = 5             # Playlistdan bir martada yuklanadigan max video soni
-PROGRESS_UPDATE_INTERVAL = 3   # sekund - progress xabari qancha tez-tez yangilanadi
+MAX_FILE_SIZE_MB = 50
+PLAYLIST_LIMIT = 5
+PROGRESS_UPDATE_INTERVAL = 3
 
-# Har bir foydalanuvchi uchun "hozir nima yuklayapti" ma'lumotini vaqtincha saqlash
 pending_downloads = {}
 
 
@@ -53,8 +52,7 @@ TEXTS = {
             "Men sizga sevimli medialaringizni bir necha soniyada yuklab beraman 🚀\n\n"
             "📌 *Imkoniyatlarim:*\n"
             "🎬 Instagram / TikTok / YouTube — link yuboring\n"
-            "🎵 Qo'shiq nomini yozing — men qidirib topaman\n"
-            "📃 YouTube playlist ham qo'llab-quvvatlanadi\n\n"
+            "🎵 Qo'shiq nomini yozing — men qidirib topaman\n\n"
             "👇 Boshlash uchun havola yoki qo'shiq nomini yozing!"
         ),
         "analyzing": "🔎 Havola tekshirilmoqda...",
@@ -68,37 +66,30 @@ TEXTS = {
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq/bloklangan bo'lishi mumkin.",
-        "error_toolarge": "❌ Fayl juda katta (limit: {limit}MB). Boshqa media sinab ko'ring.",
+        "error_toolarge": "❌ Fayl juda katta (limit: {limit}MB).",
         "searching_music": "🔍 «{query}» qidirilmoqda...",
-        "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi. Boshqacha nom bilan qayta urinib ko'ring.",
+        "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
         "playlist_found": "📃 Playlist topildi: *{count} ta* video.\nBirinchi *{limit} ta* videoni yuklaymi?",
         "btn_playlist_yes": "✅ Ha, yuklash",
         "btn_playlist_no": "❌ Yo'q",
         "playlist_progress": "⏳ Playlist yuklanmoqda: {done}/{total}",
-        "playlist_done": "✅ Playlist tugadi! {done}/{total} video yuborildi.",
-        "admin_denied": "❌ Siz uchun bu bo'lim taqiqlangan!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta\n\n📢 Xabar: `/broadcast <parol> Xabar matni`",
+        "playlist_done": "✅ Playlist tugadi!",
+        "admin_denied": "❌ Taqiqlangan!",
+        "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta",
         "broadcast_empty": "⚠️ Xabar matnini yozing!",
-        "broadcast_done": "✅ Xabar *{count}* ta foydalanuvchiga yuborildi.",
+        "broadcast_done": "✅ Xabar yuborildi.",
         "session_expired": "⚠️ Sessiya eskirgan, havolani qayta yuboring.",
         "ask_music": "🎵 Videoning musiqasini alohida (MP3) yuboraymi?",
         "ask_description": "📝 Video tavsifini (opisaniyasini) ham yuboraymi?",
         "btn_yes": "✅ Ha",
         "btn_no": "❌ Yo'q",
         "no_description": "ℹ️ Bu video uchun tavsif topilmadi.",
-        "description_caption": "📝 *Tavsif:*\n\n{description}",
-        "extra_error": "❌ Bu qismini yuklab bo'lmadi.",
-        "no_thanks": "👍 Yaxshi, davom eting!",
     },
     "ru": {
         "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
         "welcome": (
             "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\n"
             "Я скачаю ваши любимые медиа за пару секунд 🚀\n\n"
-            "📌 *Возможности:*\n"
-            "🎬 Instagram / TikTok / YouTube — отправьте ссылку\n"
-            "🎵 Название песни — я найду её сам\n"
-            "📃 Поддержка YouTube-плейлистов\n\n"
             "👇 Отправьте ссылку или название песни!"
         ),
         "analyzing": "🔎 Проверяю ссылку...",
@@ -111,73 +102,59 @@ TEXTS = {
         "converting": "🔄 Подготовка файла...",
         "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Не удалось скачать. Проверьте ссылку или медиа закрыто/заблокировано.",
-        "error_toolarge": "❌ Файл слишком большой (лимит: {limit}MB). Попробуйте другой.",
+        "error_generic": "❌ Не удалось скачать.",
+        "error_toolarge": "❌ Файл слишком большой.",
         "searching_music": "🔍 Ищу «{query}»...",
-        "music_not_found": "❌ Музыка не найдена. Попробуйте другое название.",
-        "playlist_found": "📃 Найден плейлист: *{count}* видео.\nСкачать первые *{limit}*?",
-        "btn_playlist_yes": "✅ Да, скачать",
+        "music_not_found": "❌ Музыка не найдена.",
+        "playlist_found": "📃 Найден плейлист.",
+        "btn_playlist_yes": "✅ Да",
         "btn_playlist_no": "❌ Нет",
-        "playlist_progress": "⏳ Загрузка плейлиста: {done}/{total}",
-        "playlist_done": "✅ Готово! Отправлено {done}/{total} видео.",
+        "playlist_progress": "⏳ Загрузка: {done}/{total}",
+        "playlist_done": "✅ Готово!",
         "admin_denied": "❌ Доступ запрещён!",
-        "admin_panel": "📊 *Админ-панель*\n\n👥 Всего пользователей: *{count}*\n\n📢 Рассылка: `/broadcast <пароль> текст`",
-        "broadcast_empty": "⚠️ Введите текст сообщения!",
-        "broadcast_done": "✅ Сообщение отправлено *{count}* пользователям.",
+        "admin_panel": "📊 *Админ-панель*\n\n👥 Всего: *{count}*",
+        "broadcast_empty": "⚠️ Введите текст!",
+        "broadcast_done": "✅ Отправлено.",
         "session_expired": "⚠️ Сессия устарела, отправьте ссылку заново.",
         "ask_music": "🎵 Отправить музыку из видео отдельно (MP3)?",
         "ask_description": "📝 Отправить описание видео?",
         "btn_yes": "✅ Да",
         "btn_no": "❌ Нет",
-        "no_description": "ℹ️ Описание для этого видео не найдено.",
-        "description_caption": "📝 *Описание:*\n\n{description}",
-        "extra_error": "❌ Не удалось загрузить эту часть.",
-        "no_thanks": "👍 Хорошо, продолжаем!",
+        "no_description": "ℹ️ Описание не найдено.",
     },
     "en": {
         "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": (
-            "✨ *Welcome to InstaSave Bot!* ✨\n\n"
-            "I'll download your favorite media in seconds 🚀\n\n"
-            "📌 *What I can do:*\n"
-            "🎬 Instagram / TikTok / YouTube — send a link\n"
-            "🎵 Song name — I'll find and send it\n"
-            "📃 YouTube playlists supported\n\n"
-            "👇 Send a link or a song name to start!"
-        ),
+        "welcome": "✨ *Welcome to InstaSave Bot!* ✨\n\nSend a link or a song name to start!",
         "analyzing": "🔎 Checking the link...",
-        "choose_quality": "🎯 *{title}*\n\nWhich format would you like?",
-        "btn_video_best": "🎥 Video (best quality)",
+        "choose_quality": "🎯 *{title}*\n\nWhich format?",
+        "btn_video_best": "🎥 Video",
         "btn_audio_only": "🎵 Audio only (MP3)",
         "btn_cancel": "❌ Cancel",
         "cancelled": "❌ Cancelled.",
         "downloading": "⏳ Downloading... {percent}",
-        "converting": "🔄 Preparing file...",
+        "converting": "🔄 Preparing...",
         "video_caption": "✅ *Video ready!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Couldn't download. Check the link or the media may be private/blocked.",
-        "error_toolarge": "❌ File too large (limit: {limit}MB). Try something else.",
-        "searching_music": "🔍 Searching for «{query}»...",
-        "music_not_found": "❌ No music found for that name. Try a different search.",
-        "playlist_found": "📃 Playlist found: *{count}* videos.\nDownload the first *{limit}*?",
-        "btn_playlist_yes": "✅ Yes, download",
+        "error_generic": "❌ Couldn't download.",
+        "error_toolarge": "❌ File too large.",
+        "searching_music": "🔍 Searching...",
+        "music_not_found": "❌ Not found.",
+        "playlist_found": "📃 Playlist found.",
+        "btn_playlist_yes": "✅ Yes",
         "btn_playlist_no": "❌ No",
-        "playlist_progress": "⏳ Downloading playlist: {done}/{total}",
-        "playlist_done": "✅ Done! Sent {done}/{total} videos.",
+        "playlist_progress": "⏳ Downloading: {done}/{total}",
+        "playlist_done": "✅ Done!",
         "admin_denied": "❌ Access denied!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Total users: *{count}*\n\n📢 Broadcast: `/broadcast <password> message`",
-        "broadcast_empty": "⚠️ Enter a message!",
-        "broadcast_done": "✅ Message sent to *{count}* users.",
-        "session_expired": "⚠️ Session expired, please send the link again.",
-        "ask_music": "🎵 Send the video's music separately (MP3)?",
-        "ask_description": "📝 Send the video description too?",
+        "admin_panel": "📊 *Admin Panel*\n\n👥 Users: *{count}*",
+        "broadcast_empty": "⚠️ Enter message!",
+        "broadcast_done": "✅ Sent.",
+        "session_expired": "⚠️ Session expired.",
+        "ask_music": "🎵 Send video's music separately (MP3)?",
+        "ask_description": "📝 Send video description?",
         "btn_yes": "✅ Yes",
         "btn_no": "❌ No",
-        "no_description": "ℹ️ No description found for this video.",
-        "description_caption": "📝 *Description:*\n\n{description}",
-        "extra_error": "❌ Couldn't fetch that part.",
-        "no_thanks": "👍 Great, carry on!",
-    },
+        "no_description": "ℹ️ No description.",
+    }
 }
 
 
@@ -187,7 +164,7 @@ def t(lang, key, **kwargs):
 
 
 # ============================================================================
-# MA'LUMOTLAR BAZASI (SQLite)
+# DATABASE (SQLite)
 # ============================================================================
 def db_init():
     conn = sqlite3.connect(DB_FILE)
@@ -241,7 +218,7 @@ def db_count_users():
 
 
 # ============================================================================
-# RENDER HEALTH-CHECK SERVER
+# HEALTH-CHECK SERVER
 # ============================================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -259,7 +236,7 @@ def run_health_check_server():
 
 
 # ============================================================================
-# YORDAMCHI: yt-dlp SOZLAMALARI
+# HELPER: yt-dlp
 # ============================================================================
 def base_ydl_opts():
     opts = {
@@ -305,7 +282,7 @@ def make_progress_hook(loop, bot, chat_id, message_id, lang):
 
 
 # ============================================================================
-# /start - TIL TANLASH
+# HANDLERS
 # ============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_add_user(update.effective_user.id)
@@ -328,9 +305,6 @@ async def on_language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(t(lang, "welcome"), parse_mode="Markdown")
 
 
-# ============================================================================
-# ADMIN PANEL
-# ============================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = db_get_lang(update.effective_user.id)
     args = context.args
@@ -367,9 +341,6 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(t(lang, "broadcast_done", count=count), parse_mode="Markdown")
 
 
-# ============================================================================
-# LINK YUBORILGANDA
-# ============================================================================
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str, lang: str):
     msg = await update.message.reply_text(t(lang, "analyzing"), parse_mode="Markdown")
 
@@ -381,21 +352,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     except Exception as e:
         logger.error(f"Tahlil xatoligi: {e}")
         await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
-        return
-
-    if info.get('_type') == 'playlist' or (info.get('entries') and len(list(info.get('entries', []))) > 1):
-        entries = list(info.get('entries', []))
-        token = uuid.uuid4().hex[:10]
-        pending_downloads[token] = {"url": url, "chat_id": update.effective_chat.id, "entries": entries}
-        keyboard = [[
-            InlineKeyboardButton(t(lang, "btn_playlist_yes"), callback_data=f"pl:{token}:yes"),
-            InlineKeyboardButton(t(lang, "btn_playlist_no"), callback_data=f"pl:{token}:no"),
-        ]]
-        await msg.edit_text(
-            t(lang, "playlist_found", count=len(entries), limit=PLAYLIST_LIMIT),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
         return
 
     title = info.get('title', 'Media')
@@ -445,123 +401,6 @@ async def on_quality_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pass
 
 
-async def on_playlist_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, token, choice = query.data.split(":")
-    data = pending_downloads.pop(token, None)
-    if not data:
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    if choice == "no":
-        await query.edit_message_text(t(lang, "cancelled"), parse_mode="Markdown")
-        return
-
-    entries = data["entries"][:PLAYLIST_LIMIT]
-    chat_id = data["chat_id"]
-    total = len(entries)
-    done = 0
-
-    await query.edit_message_text(t(lang, "playlist_progress", done=0, total=total), parse_mode="Markdown")
-
-    for entry in entries:
-        video_url = entry.get('webpage_url') or entry.get('url')
-        if not video_url:
-            continue
-        try:
-            await download_and_send(
-                context=context,
-                chat_id=chat_id,
-                status_message_id=None,
-                url=video_url,
-                lang=lang,
-                as_audio=False,
-            )
-            done += 1
-        except Exception as e:
-            logger.error(f"Playlist elementi xatoligi: {e}")
-        try:
-            await query.edit_message_text(
-                t(lang, "playlist_progress", done=done, total=total), parse_mode="Markdown"
-            )
-        except Exception:
-            pass
-
-    await context.bot.send_message(chat_id, t(lang, "playlist_done", done=done, total=total), parse_mode="Markdown")
-
-
-async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, token, choice = query.data.split(":")
-    data = pending_downloads.get(token)
-    if not data:
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    if choice == "yes":
-        await query.edit_message_text(t(lang, "downloading", percent=""), parse_mode="Markdown")
-        try:
-            await download_and_send(
-                context=context,
-                chat_id=data["chat_id"],
-                status_message_id=query.message.message_id,
-                url=data["url"],
-                lang=lang,
-                as_audio=True,
-                offer_extras=False,
-            )
-        except Exception:
-            pass
-    else:
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
-
-    keyboard = [[
-        InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"desc:{token}:yes"),
-        InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"desc:{token}:no"),
-    ]]
-    await context.bot.send_message(
-        chat_id=data["chat_id"],
-        text=t(lang, "ask_description"),
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-async def on_description_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, token, choice = query.data.split(":")
-    data = pending_downloads.pop(token, None)
-    if not data:
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    if choice == "yes":
-        description = data.get("description") or ""
-        if description:
-            description = description[:4000]
-            header = {"uz": "📝 Tavsif:", "ru": "📝 Описание:", "en": "📝 Description:"}.get(lang, "📝 Tavsif:")
-            await query.edit_message_text(f"{header}\n\n{description}")
-        else:
-            await query.edit_message_text(t(lang, "no_description"), parse_mode="Markdown")
-    else:
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
-
-
 async def download_and_send(context, chat_id, status_message_id, url, lang, as_audio, offer_extras=False):
     loop = asyncio.get_running_loop()
     file_path = None
@@ -601,10 +440,7 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
 
         if status_message_id:
             try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id, message_id=status_message_id,
-                    text=t(lang, "converting"), parse_mode="Markdown"
-                )
+                await context.bot.delete_message(chat_id=chat_id, message_id=status_message_id)
             except Exception:
                 pass
 
@@ -621,12 +457,7 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
                     caption=t(lang, "video_caption"), parse_mode="Markdown"
                 )
 
-        if status_message_id:
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=status_message_id)
-            except Exception:
-                pass
-
+        # FAQAT Video yuborilgach MP3 SO'RALADI:
         if offer_extras and not as_audio:
             token = uuid.uuid4().hex[:10]
             pending_downloads[token] = {
@@ -645,25 +476,82 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-    except yt_dlp.utils.DownloadError as e:
+    except Exception as e:
         logger.error(f"Yuklash xatoligi: {e}")
-        err_text = t(lang, "error_toolarge", limit=MAX_FILE_SIZE_MB) if "max-filesize" in str(e).lower() or "larger" in str(e).lower() else t(lang, "error_generic")
-        if status_message_id:
-            try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=status_message_id, text=err_text, parse_mode="Markdown")
-            except Exception:
-                await context.bot.send_message(chat_id, err_text, parse_mode="Markdown")
-        else:
-            await context.bot.send_message(chat_id, err_text, parse_mode="Markdown")
-        raise
+        err_text = t(lang, "error_generic")
+        await context.bot.send_message(chat_id, err_text, parse_mode="Markdown")
     finally:
         if file_path and os.path.exists(file_path):
             os.remove(file_path)
 
 
-# ============================================================================
-# QO'SHIQ QIDIRISH
-# ============================================================================
+async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = db_get_lang(update.effective_user.id)
+
+    _, token, choice = query.data.split(":")
+    data = pending_downloads.get(token)
+    if not data:
+        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
+        return
+
+    if choice == "yes":
+        await query.edit_message_text(t(lang, "downloading", percent=""), parse_mode="Markdown")
+        await download_and_send(
+            context=context,
+            chat_id=data["chat_id"],
+            status_message_id=query.message.message_id,
+            url=data["url"],
+            lang=lang,
+            as_audio=True,
+            offer_extras=False,
+        )
+    else:
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+
+    # MP3 ga javob berilgach, Tavsif haqida so'raymiz:
+    keyboard = [[
+        InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"desc:{token}:yes"),
+        InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"desc:{token}:no"),
+    ]]
+    await context.bot.send_message(
+        chat_id=data["chat_id"],
+        text=t(lang, "ask_description"),
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def on_description_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = db_get_lang(update.effective_user.id)
+
+    _, token, choice = query.data.split(":")
+    data = pending_downloads.pop(token, None)
+    if not data:
+        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
+        return
+
+    if choice == "yes":
+        description = data.get("description") or ""
+        if description:
+            description = description[:4000]
+            header = {"uz": "📝 Tavsif:", "ru": "📝 Описание:", "en": "📝 Description:"}.get(lang, "📝 Tavsif:")
+            await query.edit_message_text(f"{header}\n\n{description}")
+        else:
+            await query.edit_message_text(t(lang, "no_description"), parse_mode="Markdown")
+    else:
+        try:
+            await query.delete_message()
+        except Exception:
+            pass
+
+
 async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
     loop = asyncio.get_running_loop()
@@ -682,8 +570,7 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
                 None, lambda: ydl_search.extract_info(f"ytsearch5:{query_text}", download=False)
             )
         candidates = search_info.get('entries', []) if search_info else []
-    except Exception as e:
-        logger.error(f"Qidiruv xatoligi: {e}")
+    except Exception:
         candidates = []
 
     if not candidates:
@@ -717,9 +604,7 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
             await msg.delete()
             return
-
-        except Exception as e:
-            logger.warning(f"Nomzod ishlamadi ({video_url}): {e}")
+        except Exception:
             continue
         finally:
             if file_path and os.path.exists(file_path):
@@ -728,9 +613,6 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
 
 
-# ============================================================================
-# UMUMIY XABAR ROUTER
-# ============================================================================
 SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
 
@@ -747,9 +629,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_music_search(update, context, text, lang)
 
 
-# ============================================================================
-# MAIN
-# ============================================================================
 def main():
     db_init()
     Thread(target=run_health_check_server, daemon=True).start()
@@ -761,7 +640,6 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CallbackQueryHandler(on_language_chosen, pattern=r"^lang:"))
     app.add_handler(CallbackQueryHandler(on_quality_chosen, pattern=r"^q:"))
-    app.add_handler(CallbackQueryHandler(on_playlist_choice, pattern=r"^pl:"))
     app.add_handler(CallbackQueryHandler(on_music_choice, pattern=r"^music:"))
     app.add_handler(CallbackQueryHandler(on_description_choice, pattern=r"^desc:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
