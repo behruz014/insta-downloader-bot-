@@ -1,13 +1,10 @@
 import os
-import re
 import time
 import uuid
-import json
-import urllib.request
-import urllib.parse
 import asyncio
 import logging
 import sqlite3
+import requests
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -32,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger("InstaSaveBot")
 
 # ============================================================================
-# API TOKEN VA PAROL
+# API TOKEN VA KALITLAR
 # ============================================================================
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAE9-vTG79Rn40jU2lk1QY1fBEeWpmGQV5Q")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
@@ -60,7 +57,7 @@ TEXTS = {
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
-        "searching_music": "🔍 «{query}» qidirilmoqda...",
+        "searching_music": "🔍 «{query}» Deezer'dan qidirilmoqda...",
         "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
         "admin_denied": "❌ Taqiqlangan!",
         "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta",
@@ -203,6 +200,30 @@ def base_ydl_opts():
     if os.path.exists("cookies.txt"):
         opts['cookiefile'] = "cookies.txt"
     return opts
+
+
+# ============================================================================
+# DEEZER API ORQALI BEPUL MUSIQA QIDIRUV FUNKSIYASI
+# ============================================================================
+def search_deezer_music(query: str):
+    """
+    Deezer API orqali musiqa qidiradi. API Key va ro'yxatdan o'tish shart emas.
+    """
+    url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=1"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("data"):
+                song = data["data"][0]
+                return {
+                    "title": song.get("title"),
+                    "artist": song.get("artist", {}).get("name"),
+                    "audio_url": song.get("preview"),  # Direct audio stream URL
+                }
+    except Exception as e:
+        logger.error(f"Deezer API Error: {e}")
+    return None
 
 
 # ============================================================================
@@ -382,87 +403,32 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
-# ============================================================================
-# TO'G'RIDAN-TO'G'RI YOUTUBE SEARCH SCRAPER (MUTLAQO BLOKLANMAYDI)
-# ============================================================================
-def search_youtube_ids(query):
-    try:
-        encoded_query = urllib.parse.quote(query)
-        url = f"https://www.youtube.com/results?search_query={encoded_query}"
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        )
-        html = urllib.request.urlopen(req).read().decode('utf-8')
-        video_ids = re.findall(r"watch\?v=(\S{11})", html)
-        # Unikal video ID larini olish
-        unique_ids = []
-        for v_id in video_ids:
-            if v_id not in unique_ids:
-                unique_ids.append(v_id)
-        return unique_ids[:5]
-    except Exception as e:
-        logger.error(f"HTML Search Error: {e}")
-        return []
-
-
 async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
     loop = asyncio.get_running_loop()
 
-    # YouTube HTML orqali video ID larni izlaymiz
-    video_ids = await loop.run_in_executor(None, lambda: search_youtube_ids(query_text))
+    # Deezer API orqali musiqa ma'lumotlarini olamiz
+    song_info = await loop.run_in_executor(None, lambda: search_deezer_music(query_text))
 
-    if not video_ids:
+    if not song_info or not song_info.get("audio_url"):
         await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
         return
 
-    # Topilgan ID lar bo'yicha ketma-ket MP3 sifatida yuklab ko'ramiz
-    for v_id in video_ids:
-        video_url = f"https://www.youtube.com/watch?v={v_id}"
-        outtmpl = f"song_{uuid.uuid4().hex[:8]}.%(ext)s"
-        file_path = None
+    full_title = f"{song_info['artist']} - {song_info['title']}"
 
-        dl_opts = base_ydl_opts()
-        dl_opts['outtmpl'] = outtmpl
-        dl_opts['format'] = 'bestaudio/best'
-        dl_opts['max_filesize'] = MAX_FILE_SIZE_MB * 1024 * 1024
-        dl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
-
-        try:
-            with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(video_url, download=True))
-                file_path = ydl.prepare_filename(info)
-                base, _ = os.path.splitext(file_path)
-                mp3_path = base + ".mp3"
-                if os.path.exists(mp3_path):
-                    file_path = mp3_path
-
-            if not os.path.exists(file_path):
-                continue
-
-            title = info.get('title', query_text)
-            with open(file_path, 'rb') as f:
-                await update.message.reply_audio(
-                    audio=f,
-                    title=title,
-                    caption=t(lang, "audio_caption", title=title),
-                    parse_mode="Markdown"
-                )
-            await msg.delete()
-            return  # Musiqa topildi va yuborildi
-        except Exception as e:
-            logger.error(f"Video MP3 qilinmadi ({v_id}): {e}")
-            continue
-        finally:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-
-    await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
+    try:
+        # Audioni to'g'ridan-to'g'ri Deezer havolasi orqali yuboramiz
+        await update.message.reply_audio(
+            audio=song_info["audio_url"],
+            title=song_info['title'],
+            performer=song_info['artist'],
+            caption=t(lang, "audio_caption", title=full_title),
+            parse_mode="Markdown"
+        )
+        await msg.delete()
+    except Exception as e:
+        logger.error(f"Deezer Audio Send Error: {e}")
+        await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
 
 
 SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
