@@ -20,7 +20,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render platformasi to'xtab qolmasligi uchun HTTP server
+# Render platformasi uxlab qolmasligi uchun HTTP server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -33,7 +33,10 @@ def run_health_check_server():
     server.serve_forever()
 
 BOT_TOKEN = "8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs"
-ADMIN_ID = None  # Xohlasangiz Telegram ID'ingizni yozing
+ADMIN_PASSWORD = "behruz700"  # Admin paroli
+
+# Siz bergan majburiy obuna kanali
+REQUIRED_CHANNEL = "@boynazarov014"
 
 USERS_FILE = "users.json"
 
@@ -53,46 +56,78 @@ def save_user(user_id):
         with open(USERS_FILE, "w") as f:
             json.dump(list(users), f)
 
-# /start xabari (Chiroyli dizayn)
+# Majburiy obunani tekshirish funksiyasi
+async def check_subscription(user_id, context):
+    if not REQUIRED_CHANNEL:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
+        if member.status in ['creator', 'administrator', 'member']:
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"Obuna tekshirishda xatolik: {e}")
+        return True  # Agar bot kanalda admin bo'lmasa, foydalanuvchilar to'silib qolmasligi uchun True qaytaradi
+
+# Obuna xabari
+async def send_sub_message(update: Update):
+    keyboard = [
+        [InlineKeyboardButton("📢 Kanalga a'zo bo'lish", url=f"https://t.me/boynazarov014")],
+        [InlineKeyboardButton("✅ Tekshirish", callback_data="check_sub")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    msg_text = "⚠️ **Botdan foydalanish uchun avval rasmiy kanalimizga a'zo bo'ling!**"
+    
+    if update.message:
+        await update.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+# /start xabari
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     save_user(user_id)
-    
+
+    if not await check_subscription(user_id, context):
+        await send_sub_message(update)
+        return
+
     welcome_text = (
         "✨ **InstaSave Botiga xush kelibsiz!** ✨\n\n"
         "Men sizga sevimli va qiziqarli medialaringizni bir necha soniyada yuklab beraman! 🚀\n\n"
         "📌 **Imkoniyatlarim:**\n"
-        "🎬 **Instagram / TikTok / YouTube:** Video havolasini yuboring.\n"
-        "🎵 **Videodan audio:** Link yuborib, MP3 formatida ajratib oling.\n"
-        "🔍 **Musiqa qidiruv:** Qo'shiq nomi yoki xonandani yozing.\n\n"
+        "🎬 **Instagram / TikTok / YouTube:** Link yuboring.\n"
+        "🎵 **Videodan audio:** Link yuborib, MP3 qilib oling.\n"
+        "🔍 **Musiqa qidiruv:** Qo'shiq nomini yozing.\n\n"
         "👇 *Boshlash uchun havola yoki qo'shiq nomini yozib yuboring!*"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Admin panel
+# Admin panel (/admin behruz700)
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_ID and user_id != ADMIN_ID:
-        await update.message.reply_text("❌ *Faqat admin uchun!*", parse_mode="Markdown")
+    args = context.args
+    if not args or args[0] != ADMIN_PASSWORD:
+        await update.message.reply_text("🔒 **Parol noto'g'ri!** Ishlatish: `/admin behruz700`", parse_mode="Markdown")
         return
 
     users = load_users()
     await update.message.reply_text(
         f"📊 **Admin Panel**\n\n"
         f"👥 Jami foydalanuvchilar: **{len(users)}** ta\n\n"
-        f"📢 Xabar yuborish: `/broadcast Xabar matni`",
+        f"📢 Xabar yuborish: `/broadcast behruz700 Xabar matni`",
         parse_mode="Markdown"
     )
 
-# Xabar tarqatish (Broadcast)
+# Broadcast (/broadcast behruz700 Xabar)
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if ADMIN_ID and user_id != ADMIN_ID:
+    args = context.args
+    if not args or args[0] != ADMIN_PASSWORD:
+        await update.message.reply_text("🔒 **Parol noto'g'ri!** Ishlatish: `/broadcast behruz700 Xabar`", parse_mode="Markdown")
         return
 
-    text = " ".join(context.args)
+    text = " ".join(args[1:])
     if not text:
-        await update.message.reply_text("⚠️ Ishlatish: `/broadcast Xabar matni`", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ Xabar matnini yozing!", parse_mode="Markdown")
         return
 
     users = load_users()
@@ -106,15 +141,18 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Xabar **{count}** ta foydalanuvchiga yuborildi.", parse_mode="Markdown")
 
-# Xabarlarni qabul qilish
+# Message Handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     save_user(user_id)
 
+    if not await check_subscription(user_id, context):
+        await send_sub_message(update)
+        return
+
     text = update.message.text.strip()
     supported = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
-    # Havola yuborilganda
     if any(domain in text for domain in supported):
         keyboard = [
             [
@@ -125,9 +163,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("⚡ **Nimani yuklab olmoqchisiz?**", reply_markup=reply_markup, parse_mode="Markdown")
 
-    # Qo'shiq nomi bo'lganda
     else:
-        msg = await update.message.reply_text(f"🔍 **«{text}»** musiqasi qidirilmoqda, bir oz kuting...", parse_mode="Markdown")
+        msg = await update.message.reply_text(f"🔍 **«{text}»** musiqasi qidirilmoqda...", parse_mode="Markdown")
         file_path = None
         try:
             ydl_opts = {
@@ -158,16 +195,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Xatolik: {e}")
-            await msg.edit_text("❌ *Musiqa topilmadi yoki yuklab bo'lmadi. Qayta urinib ko'ring.*", parse_mode="Markdown")
+            await msg.edit_text("❌ *Musiqa topilmadi yoki yuklab bo'lmadi.*", parse_mode="Markdown")
 
         finally:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
 
-# Tugmalar bosilganda
+# Callback Handler
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+
+    if query.data == "check_sub":
+        user_id = query.from_user.id
+        if await check_subscription(user_id, context):
+            await query.message.edit_text("✅ **A'zolik tasdiqlandi! Endi botdan foydalanishingiz mumkin.**", parse_mode="Markdown")
+        else:
+            await query.answer("❌ Hali kanalga a'zo bo'lmadingiz!", show_alert=True)
+        return
 
     data = query.data.split("|", 1)
     download_type = data[0]
@@ -177,13 +222,20 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file_path = None
     try:
+        ydl_opts_base = {
+            'quiet': True,
+            'no_warnings': True,
+        }
+        
+        if os.path.exists("cookies.txt"):
+            ydl_opts_base['cookiefile'] = "cookies.txt"
+
         if download_type == "video":
             ydl_opts = {
+                **ydl_opts_base,
                 'format': 'bestvideo+bestaudio/best',
                 'merge_output_format': 'mp4',
                 'outtmpl': 'download_%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -198,10 +250,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         elif download_type == "audio":
             ydl_opts = {
+                **ydl_opts_base,
                 'format': 'bestaudio/best',
                 'outtmpl': 'download_%(id)s.%(ext)s',
-                'quiet': True,
-                'no_warnings': True,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -218,7 +269,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logging.error(f"Xatolik: {e}")
-        await msg.edit_text("❌ *Xatolik yuz berdi. Havola to'g'riligini yoki profil ochiqligini tekshiring.*", parse_mode="Markdown")
+        await msg.edit_text("❌ *Xatolik yuz berdi. Havola to'g'riligini tekshiring.*", parse_mode="Markdown")
 
     finally:
         if file_path and os.path.exists(file_path):
