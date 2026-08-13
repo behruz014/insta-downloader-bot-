@@ -38,6 +38,7 @@ DB_FILE = "bot.db"
 MAX_FILE_SIZE_MB = 50
 
 pending_downloads = {}
+music_search_cache = {}
 
 # ============================================================================
 # TILLAR (UZ / RU / EN)
@@ -57,13 +58,14 @@ TEXTS = {
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
-        "searching_music": "🔍 «{query}» Deezer'dan qidirilmoqda...",
+        "searching_music": "🔍 «{query}» bo'yicha musiqa qidirilmoqda...",
+        "music_select": "🎵 Kerakli musiqani tanlang:",
         "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
         "admin_denied": "❌ Taqiqlangan!",
         "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta",
         "broadcast_empty": "⚠️ Xabar matnini yozing!",
         "broadcast_done": "✅ Xabar yuborildi.",
-        "session_expired": "⚠️ Sessiya eskirgan, havolani qayta yuboring.",
+        "session_expired": "⚠️ Sessiya eskirgan, qaytadan qidirib ko'ring.",
         "ask_music": "🎵 Ushbu videoning musiqasi (MP3) kerakmi?",
         "btn_yes": "✅ Ha, MP3 kerak",
         "btn_no": "❌ Yo'q",
@@ -76,6 +78,7 @@ TEXTS = {
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Не удалось скачать.",
         "searching_music": "🔍 Ищу «{query}»...",
+        "music_select": "🎵 Выберите нужный трек:",
         "music_not_found": "❌ Музыка не найдена.",
         "admin_denied": "❌ Доступ запрещён!",
         "admin_panel": "📊 *Админ-панель*\n\n👥 Всего: *{count}*",
@@ -94,6 +97,7 @@ TEXTS = {
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Couldn't download.",
         "searching_music": "🔍 Searching...",
+        "music_select": "🎵 Select the music:",
         "music_not_found": "❌ Not found.",
         "admin_denied": "❌ Access denied!",
         "admin_panel": "📊 *Admin Panel*\n\n👥 Users: *{count}*",
@@ -203,29 +207,77 @@ def base_ydl_opts():
 
 
 # ============================================================================
-# DEEZER API ORQALI BEPUL MUSIQA QIDIRUV FUNKSIYASI (YAXSHILANGAN)
+# MUSIQA QIDIRUV (DEEZER + YOUTUBE FALLBACK)
 # ============================================================================
-def search_deezer_music(query: str):
+def search_music_combined(query: str):
     """
-    Deezer API orqali musiqa qidiradi. 
-    Limit 5 ga oshirilgan va audio fayl mavjudligi tekshiriladi.
+    1. Deezer'dan qidiradi
+    2. Natija kam yoki bo'lmasa YouTube'dan qidiradi
     """
-    url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=5"
+    results = []
+    
+    # Deezer Qidiruvi
     try:
-        response = requests.get(url, timeout=10)
+        url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=5"
+        response = requests.get(url, timeout=5)
         if response.status_code == 200:
             data = response.json()
             for song in data.get("data", []):
                 preview = song.get("preview")
                 if preview:
-                    return {
+                    results.append({
+                        "source": "deezer",
                         "title": song.get("title"),
                         "artist": song.get("artist", {}).get("name"),
-                        "audio_url": preview,  # Direct audio stream URL
-                    }
+                        "audio_url": preview,
+                    })
     except Exception as e:
-        logger.error(f"Deezer API Error: {e}")
-    return None
+        logger.error(f"Deezer Search Error: {e}")
+
+    # Agar Deezer kam natija bersa, YouTube Search qo'shiladi
+    if len(results) < 3:
+        try:
+            opts = base_ydl_opts()
+            opts.update({
+                'extract_flat': True,
+                'default_search': 'ytsearch5:'
+            })
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(query, download=False)
+                entries = info.get('entries', [])
+                for entry in entries:
+                    results.append({
+                        "source": "youtube",
+                        "title": entry.get('title', 'Musiqa'),
+                        "artist": entry.get('uploader', 'YouTube'),
+                        "url": entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}"
+                    })
+        except Exception as e:
+            logger.error(f"YouTube Search Error: {e}")
+
+    return results
+
+
+def download_yt_audio(url: str):
+    outtmpl = f"dl_audio_{uuid.uuid4().hex[:8]}.%(ext)s"
+    opts = base_ydl_opts()
+    opts.update({
+        'format': 'bestaudio/best',
+        'outtmpl': outtmpl,
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+    })
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
+        base, _ = os.path.splitext(file_path)
+        mp3_path = base + ".mp3"
+        if os.path.exists(mp3_path):
+            return mp3_path
+        return file_path
 
 
 # ============================================================================
@@ -361,28 +413,11 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⏳ MP3 audio yuklanmoqda...", parse_mode="Markdown")
         
         loop = asyncio.get_running_loop()
-        outtmpl = f"audio_{uuid.uuid4().hex[:8]}.%(ext)s"
         file_path = None
 
-        opts = base_ydl_opts()
-        opts['outtmpl'] = outtmpl
-        opts['format'] = 'bestaudio/best'
-        opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
-
         try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(data["url"], download=True))
-                file_path = ydl.prepare_filename(info)
-                base, _ = os.path.splitext(file_path)
-                mp3_path = base + ".mp3"
-                if os.path.exists(mp3_path):
-                    file_path = mp3_path
-
-            title = info.get('title', 'Audio')
+            file_path = await loop.run_in_executor(None, lambda: download_yt_audio(data["url"]))
+            title = "Audio"
             with open(file_path, 'rb') as f:
                 await context.bot.send_audio(
                     chat_id=data["chat_id"],
@@ -409,28 +444,73 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
     loop = asyncio.get_running_loop()
 
-    # Deezer API orqali musiqa ma'lumotlarini olamiz
-    song_info = await loop.run_in_executor(None, lambda: search_deezer_music(query_text))
+    results = await loop.run_in_executor(None, lambda: search_music_combined(query_text))
 
-    if not song_info or not song_info.get("audio_url"):
+    if not results:
         await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
         return
 
-    full_title = f"{song_info['artist']} - {song_info['title']}"
+    keyboard = []
+    search_id = uuid.uuid4().hex[:8]
+    music_search_cache[search_id] = results
+
+    for idx, item in enumerate(results[:5]):
+        btn_text = f"🎵 {item['artist']} - {item['title']}"[:35]
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"dlm:{search_id}:{idx}")])
+
+    await msg.edit_text(
+        t(lang, "music_select"),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+
+async def on_download_selected_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    lang = db_get_lang(update.effective_user.id)
+
+    _, search_id, idx_str = query.data.split(":")
+    idx = int(idx_str)
+
+    results = music_search_cache.get(search_id)
+    if not results or idx >= len(results):
+        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
+        return
+
+    item = results[idx]
+    await query.edit_message_text("⏳ Musiqa yuklanmoqda...", parse_mode="Markdown")
+    loop = asyncio.get_running_loop()
 
     try:
-        # Audioni to'g'ridan-to'g'ri Deezer havolasi orqali yuboramiz
-        await update.message.reply_audio(
-            audio=song_info["audio_url"],
-            title=song_info['title'],
-            performer=song_info['artist'],
-            caption=t(lang, "audio_caption", title=full_title),
-            parse_mode="Markdown"
-        )
-        await msg.delete()
+        full_title = f"{item['artist']} - {item['title']}"
+        if item["source"] == "deezer":
+            await context.bot.send_audio(
+                chat_id=update.effective_chat.id,
+                audio=item["audio_url"],
+                title=item["title"],
+                performer=item["artist"],
+                caption=t(lang, "audio_caption", title=full_title),
+                parse_mode="Markdown"
+            )
+        else: # YouTube Source
+            file_path = await loop.run_in_executor(None, lambda: download_yt_audio(item["url"]))
+            with open(file_path, 'rb') as f:
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=f,
+                    title=item["title"],
+                    performer=item["artist"],
+                    caption=t(lang, "audio_caption", title=full_title),
+                    parse_mode="Markdown"
+                )
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        
+        await query.delete_message()
     except Exception as e:
-        logger.error(f"Deezer Audio Send Error: {e}")
-        await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
+        logger.error(f"Download Selected Music Error: {e}")
+        await query.edit_message_text(t(lang, "error_generic"), parse_mode="Markdown")
 
 
 SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
@@ -460,6 +540,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CallbackQueryHandler(on_language_chosen, pattern=r"^lang:"))
     app.add_handler(CallbackQueryHandler(on_music_choice, pattern=r"^music:"))
+    app.add_handler(CallbackQueryHandler(on_download_selected_music, pattern=r"^dlm:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     logger.info("Bot ishga tushdi...")
