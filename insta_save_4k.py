@@ -19,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render platformasida faol turishi uchun HTTP server
+# Render platformasi uchib qolmasligi uchun HTTP server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -33,7 +33,6 @@ def run_health_check_server():
 
 BOT_TOKEN = "8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs"
 ADMIN_PASSWORD = "behruz700"
-
 USERS_FILE = "users.json"
 
 def load_users():
@@ -61,13 +60,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✨ **InstaSave Botiga xush kelibsiz!** ✨\n\n"
         "Men sizga sevimli va qiziqarli medialaringizni bir necha soniyada yuklab beraman! 🚀\n\n"
         "📌 **Imkoniyatlarim:**\n"
-        "🎬 **Instagram / TikTok / YouTube:** Link yuboring, avtomatik video va musiqasini yuboraman!\n"
-        "🔍 **Musiqa qidiruv:** Qo'shiq nomini yozing.\n\n"
+        "🎬 **Instagram / TikTok / YouTube:** Link yuboring, avtomatik yuklab beraman!\n"
+        "🔍 **Musiqa qidiruv:** Qo'shiq nomini yoki xonandani yozing.\n\n"
         "👇 *Boshlash uchun havola yoki qo'shiq nomini yozib yuboring!*"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Admin panel (/admin behruz700)
+# Admin panel
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
@@ -82,7 +81,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Broadcast (/broadcast behruz700 Xabar)
+# Broadcast
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
@@ -113,18 +112,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     supported = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
-    # Link kelganda
+    # Link kelganda (Video yuklash)
     if any(domain in text for domain in supported):
         msg = await update.message.reply_text("⏳ *Media yuklanmoqda, kuting...*", parse_mode="Markdown")
         video_file_path = None
         
         try:
             ydl_opts = {
-                'format': 'bestvideo+bestaudio/best',
-                'merge_output_format': 'mp4',
+                'format': 'best',
                 'outtmpl': 'download_%(id)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             }
             if os.path.exists("cookies.txt"):
                 ydl_opts['cookiefile'] = "cookies.txt"
@@ -139,18 +138,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     caption="✅ *Video yuklab olindi!*\n\n🤖 @InstaSaveBot",
                     parse_mode="Markdown"
                 )
-            
             await msg.delete()
 
         except Exception as e:
             logging.error(f"Xatolik: {e}")
-            await msg.edit_text("❌ *Yuklab bo'lmadi. Linkni tekshiring.*", parse_mode="Markdown")
+            await msg.edit_text("❌ *Yuklab bo'lmadi. Linkni tekshiring yoki video yopiq/bloklangan.*", parse_mode="Markdown")
 
         finally:
             if video_file_path and os.path.exists(video_file_path):
                 os.remove(video_file_path)
 
-    # Qo'shiq nomi bo'lganda
+    # Qo'shiq nomi kelganda (Musiqa qidiruv)
     else:
         msg = await update.message.reply_text(f"🔍 **«{text}»** musiqasi qidirilmoqda...", parse_mode="Markdown")
         file_path = None
@@ -160,16 +158,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'outtmpl': 'song_%(id)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
-                'default_search': 'ytsearch1',
+                'default_search': 'ytsearch1:',
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
             }
+            
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(text, download=True)
+                info = ydl.extract_info(f"ytsearch1:{text}", download=True)
                 if 'entries' in info and len(info['entries']) > 0:
                     video_info = info['entries'][0]
                 else:
                     video_info = info
                 
-                title = video_info.get('title', 'Musiqa')
+                title = video_info.get('title', text)
                 file_path = ydl.prepare_filename(video_info)
 
             with open(file_path, 'rb') as audio_file:
@@ -182,8 +182,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.delete()
 
         except Exception as e:
-            logging.error(f"Xatolik: {e}")
-            await msg.edit_text("❌ *Musiqa topilmadi.*", parse_mode="Markdown")
+            logging.error(f"Musiqa xatoligi: {e}")
+            await msg.edit_text("❌ *Musiqa topilmadi. Boshqacha nom bilan qidirib ko'ring.*", parse_mode="Markdown")
 
         finally:
             if file_path and os.path.exists(file_path):
