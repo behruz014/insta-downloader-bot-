@@ -19,7 +19,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render platformasi uchib qolmasligi uchun HTTP server
+# Render platformasida faol turishi uchun HTTP server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -67,11 +67,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
-# Admin panel
+# Admin panel (/admin behruz700)
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
-        await update.message.reply_text("🔒 **Parol noto'g'ri!** Ishlatish: `/admin behruz700`", parse_mode="Markdown")
+        await update.message.reply_text("❌ *Siz uchun bu bo'lim taqiqlangan!*", parse_mode="Markdown")
         return
 
     users = load_users()
@@ -82,11 +82,11 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-# Broadcast
+# Broadcast (/broadcast behruz700 Xabar)
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args or args[0] != ADMIN_PASSWORD:
-        await update.message.reply_text("🔒 **Parol noto'g'ri!** Ishlatish: `/broadcast behruz700 Xabar`", parse_mode="Markdown")
+        await update.message.reply_text("❌ *Buyruq noto'g'ri!*", parse_mode="Markdown")
         return
 
     text = " ".join(args[1:])
@@ -105,7 +105,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"✅ Xabar **{count}** ta foydalanuvchiga yuborildi.", parse_mode="Markdown")
 
-# Xabarlarni va linklarni qabul qilish
+# Xabarlarni qabul qilish
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     save_user(user_id)
@@ -113,9 +113,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     supported = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
-    # Link kelganda (Avtomatik yuklash)
+    # Link kelganda
     if any(domain in text for domain in supported):
-        msg = await update.message.reply_text("⏳ *Media va musiqasi yuklanmoqda, kuting...*", parse_mode="Markdown")
+        msg = await update.message.reply_text("⏳ *Media yuklanmoqda, kuting...*", parse_mode="Markdown")
         video_file_path = None
         
         try:
@@ -133,7 +133,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 info = ydl.extract_info(text, download=True)
                 video_file_path = ydl.prepare_filename(info)
 
-            # Videoni yuborish
             with open(video_file_path, 'rb') as video_file:
                 await update.message.reply_video(
                     video=video_file, 
@@ -145,13 +144,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Xatolik: {e}")
-            await msg.edit_text("❌ *Yuklab bo'lmadi. Linkni tekshiring yoki video yopiq profilda.*", parse_mode="Markdown")
+            await msg.edit_text("❌ *Yuklab bo'lmadi. Linkni tekshiring.*", parse_mode="Markdown")
 
         finally:
             if video_file_path and os.path.exists(video_file_path):
                 os.remove(video_file_path)
 
-    # Qo'shiq nomi yozilganda
+    # Qo'shiq nomi bo'lganda
     else:
         msg = await update.message.reply_text(f"🔍 **«{text}»** musiqasi qidirilmoqda...", parse_mode="Markdown")
         file_path = None
