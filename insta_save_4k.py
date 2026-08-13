@@ -98,7 +98,7 @@ TEXTS = {
         "admin_denied": "❌ Access denied!",
         "admin_panel": "📊 *Admin Panel*\n\n👥 Users: *{count}*",
         "broadcast_empty": "⚠️ Enter message!",
-        "broadcast_done": "✅ Sent.",
+        "broadcast_done": "⚠️ Sent.",
         "session_expired": "⚠️ Session expired.",
         "ask_music": "🎵 Do you need the music (MP3) from this video?",
         "btn_yes": "✅ Yes, send MP3",
@@ -203,24 +203,26 @@ def base_ydl_opts():
 
 
 # ============================================================================
-# DEEZER API ORQALI BEPUL MUSIQA QIDIRUV FUNKSIYASI
+# DEEZER API ORQALI BEPUL MUSIQA QIDIRUV FUNKSIYASI (YAXSHILANGAN)
 # ============================================================================
 def search_deezer_music(query: str):
     """
-    Deezer API orqali musiqa qidiradi. API Key va ro'yxatdan o'tish shart emas.
+    Deezer API orqali musiqa qidiradi. 
+    Limit 5 ga oshirilgan va audio fayl mavjudligi tekshiriladi.
     """
-    url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=1"
+    url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=5"
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            if data.get("data"):
-                song = data["data"][0]
-                return {
-                    "title": song.get("title"),
-                    "artist": song.get("artist", {}).get("name"),
-                    "audio_url": song.get("preview"),  # Direct audio stream URL
-                }
+            for song in data.get("data", []):
+                preview = song.get("preview")
+                if preview:
+                    return {
+                        "title": song.get("title"),
+                        "artist": song.get("artist", {}).get("name"),
+                        "audio_url": preview,  # Direct audio stream URL
+                    }
     except Exception as e:
         logger.error(f"Deezer API Error: {e}")
     return None
