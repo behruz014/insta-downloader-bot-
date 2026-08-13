@@ -1,6 +1,10 @@
 import os
+import re
 import time
 import uuid
+import json
+import urllib.request
+import urllib.parse
 import asyncio
 import logging
 import sqlite3
@@ -184,7 +188,7 @@ def run_health_check_server():
 
 
 # ============================================================================
-# HELPER: yt-dlp SOZLAMALARI (Musiqa va Blokirovkaga Qarshi)
+# HELPER: yt-dlp SOZLAMALARI
 # ============================================================================
 def base_ydl_opts():
     opts = {
@@ -195,11 +199,6 @@ def base_ydl_opts():
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
             '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ),
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web']
-            }
-        }
     }
     if os.path.exists("cookies.txt"):
         opts['cookiefile'] = "cookies.txt"
@@ -384,36 +383,43 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================================
-# TUZATILGAN VA KUCHAYTIRILGAN MUSIQA QIDIRISH
+# TO'G'RIDAN-TO'G'RI YOUTUBE SEARCH SCRAPER (MUTLAQO BLOKLANMAYDI)
 # ============================================================================
+def search_youtube_ids(query):
+    try:
+        encoded_query = urllib.parse.quote(query)
+        url = f"https://www.youtube.com/results?search_query={encoded_query}"
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        )
+        html = urllib.request.urlopen(req).read().decode('utf-8')
+        video_ids = re.findall(r"watch\?v=(\S{11})", html)
+        # Unikal video ID larini olish
+        unique_ids = []
+        for v_id in video_ids:
+            if v_id not in unique_ids:
+                unique_ids.append(v_id)
+        return unique_ids[:5]
+    except Exception as e:
+        logger.error(f"HTML Search Error: {e}")
+        return []
+
+
 async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
     loop = asyncio.get_running_loop()
 
-    search_opts = base_ydl_opts()
-    search_opts['extract_flat'] = True  # Tez qidirish uchun
+    # YouTube HTML orqali video ID larni izlaymiz
+    video_ids = await loop.run_in_executor(None, lambda: search_youtube_ids(query_text))
 
-    try:
-        with yt_dlp.YoutubeDL(search_opts) as ydl_search:
-            search_info = await loop.run_in_executor(
-                None, lambda: ydl_search.extract_info(f"ytsearch10:{query_text}", download=False)
-            )
-        candidates = search_info.get('entries', []) if search_info else []
-    except Exception as e:
-        logger.error(f"Qidiruv xatosi: {e}")
-        candidates = []
-
-    if not candidates:
+    if not video_ids:
         await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
         return
 
-    # Topilgan ro'yxat bo'yicha ketma-ket yuklab ko'rish
-    for entry in candidates:
-        if not entry:
-            continue
-        video_id = entry.get('id') or entry.get('url')
-        video_url = f"https://www.youtube.com/watch?v={video_id}" if not video_id.startswith("http") else video_id
-
+    # Topilgan ID lar bo'yicha ketma-ket MP3 sifatida yuklab ko'ramiz
+    for v_id in video_ids:
+        video_url = f"https://www.youtube.com/watch?v={v_id}"
         outtmpl = f"song_{uuid.uuid4().hex[:8]}.%(ext)s"
         file_path = None
 
@@ -448,9 +454,9 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
                     parse_mode="Markdown"
                 )
             await msg.delete()
-            return  # Musiqa muvaffaqiyatli topildi va yuborildi
+            return  # Musiqa topildi va yuborildi
         except Exception as e:
-            logger.error(f"Video MP3 qilinmadi, keyingisiga o'tilmoqda: {e}")
+            logger.error(f"Video MP3 qilinmadi ({v_id}): {e}")
             continue
         finally:
             if file_path and os.path.exists(file_path):
