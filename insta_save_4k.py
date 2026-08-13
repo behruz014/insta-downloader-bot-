@@ -35,10 +35,8 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
 
 DB_FILE = "bot.db"
 MAX_FILE_SIZE_MB = 50
-PROGRESS_UPDATE_INTERVAL = 3
 
 pending_downloads = {}
-
 
 # ============================================================================
 # TILLAR (UZ / RU / EN)
@@ -54,11 +52,10 @@ TEXTS = {
             "🎵 Qo'shiq nomini yozing — men qidirib topaman\n\n"
             "👇 Boshlash uchun havola yoki qo'shiq nomini yozing!"
         ),
-        "analyzing": "🔎 Havola tekshirilmoqda va yuklanmoqda...",
-        "downloading": "⏳ Video yuklanmoqda...",
+        "analyzing": "🔎 Video yuklanmoqda...",
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq/bloklangan bo'lishi mumkin.",
+        "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
         "searching_music": "🔍 «{query}» qidirilmoqda...",
         "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
         "admin_denied": "❌ Taqiqlangan!",
@@ -74,7 +71,6 @@ TEXTS = {
         "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
         "welcome": "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\nОтправьте ссылку или название песни!",
         "analyzing": "🔎 Скачиваю видео...",
-        "downloading": "⏳ Загрузка видео...",
         "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Не удалось скачать.",
@@ -93,7 +89,6 @@ TEXTS = {
         "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
         "welcome": "✨ *Welcome to InstaSave Bot!* ✨",
         "analyzing": "🔎 Downloading video...",
-        "downloading": "⏳ Downloading...",
         "video_caption": "✅ *Video ready!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Couldn't download.",
@@ -189,7 +184,7 @@ def run_health_check_server():
 
 
 # ============================================================================
-# HELPER: yt-dlp
+# HELPER: yt-dlp SOZLAMALARI (Musiqa va Blokirovkaga Qarshi)
 # ============================================================================
 def base_ydl_opts():
     opts = {
@@ -198,8 +193,13 @@ def base_ydl_opts():
         'noplaylist': True,
         'user_agent': (
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         ),
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web']
+            }
+        }
     }
     if os.path.exists("cookies.txt"):
         opts['cookiefile'] = "cookies.txt"
@@ -276,11 +276,10 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
 
     opts = base_ydl_opts()
     opts['outtmpl'] = outtmpl
-    opts['format'] = 'best'
+    opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
     opts['max_filesize'] = MAX_FILE_SIZE_MB * 1024 * 1024
 
     try:
-        # Videoni yuklab olish
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
             file_path = ydl.prepare_filename(info)
@@ -288,13 +287,11 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         if not os.path.exists(file_path):
             raise FileNotFoundError("Fayl topilmadi")
 
-        # Xabarni o'chirish
         try:
             await msg.delete()
         except Exception:
             pass
 
-        # 1. Videoni yuborish
         with open(file_path, 'rb') as f:
             await context.bot.send_video(
                 chat_id=chat_id,
@@ -303,7 +300,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
                 parse_mode="Markdown"
             )
 
-        # 2. Video yuborilgach, pastidan MP3 kerakmi deb so'rash
         token = uuid.uuid4().hex[:10]
         pending_downloads[token] = {"url": url, "chat_id": chat_id}
 
@@ -387,40 +383,52 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+# ============================================================================
+# TUZATILGAN VA KUCHAYTIRILGAN MUSIQA QIDIRISH
+# ============================================================================
 async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
     loop = asyncio.get_running_loop()
 
-    opts = base_ydl_opts()
-    opts['format'] = 'bestaudio/best'
-    opts['postprocessors'] = [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }]
+    search_opts = base_ydl_opts()
+    search_opts['extract_flat'] = True  # Tez qidirish uchun
 
     try:
-        with yt_dlp.YoutubeDL({**opts, 'quiet': True}) as ydl_search:
+        with yt_dlp.YoutubeDL(search_opts) as ydl_search:
             search_info = await loop.run_in_executor(
-                None, lambda: ydl_search.extract_info(f"ytsearch5:{query_text}", download=False)
+                None, lambda: ydl_search.extract_info(f"ytsearch10:{query_text}", download=False)
             )
         candidates = search_info.get('entries', []) if search_info else []
-    except Exception:
+    except Exception as e:
+        logger.error(f"Qidiruv xatosi: {e}")
         candidates = []
 
     if not candidates:
         await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
         return
 
+    # Topilgan ro'yxat bo'yicha ketma-ket yuklab ko'rish
     for entry in candidates:
         if not entry:
             continue
-        video_url = entry.get('webpage_url') or entry.get('url') or entry.get('id')
+        video_id = entry.get('id') or entry.get('url')
+        video_url = f"https://www.youtube.com/watch?v={video_id}" if not video_id.startswith("http") else video_id
+
         outtmpl = f"song_{uuid.uuid4().hex[:8]}.%(ext)s"
         file_path = None
+
+        dl_opts = base_ydl_opts()
+        dl_opts['outtmpl'] = outtmpl
+        dl_opts['format'] = 'bestaudio/best'
+        dl_opts['max_filesize'] = MAX_FILE_SIZE_MB * 1024 * 1024
+        dl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }]
+
         try:
-            song_opts = {**opts, 'outtmpl': outtmpl, 'max_filesize': MAX_FILE_SIZE_MB * 1024 * 1024}
-            with yt_dlp.YoutubeDL(song_opts) as ydl:
+            with yt_dlp.YoutubeDL(dl_opts) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(video_url, download=True))
                 file_path = ydl.prepare_filename(info)
                 base, _ = os.path.splitext(file_path)
@@ -429,17 +437,20 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
                     file_path = mp3_path
 
             if not os.path.exists(file_path):
-                raise FileNotFoundError("Fayl topilmadi")
+                continue
 
             title = info.get('title', query_text)
             with open(file_path, 'rb') as f:
                 await update.message.reply_audio(
-                    audio=f, title=title,
-                    caption=t(lang, "audio_caption", title=title), parse_mode="Markdown"
+                    audio=f,
+                    title=title,
+                    caption=t(lang, "audio_caption", title=title),
+                    parse_mode="Markdown"
                 )
             await msg.delete()
-            return
-        except Exception:
+            return  # Musiqa muvaffaqiyatli topildi va yuborildi
+        except Exception as e:
+            logger.error(f"Video MP3 qilinmadi, keyingisiga o'tilmoqda: {e}")
             continue
         finally:
             if file_path and os.path.exists(file_path):
