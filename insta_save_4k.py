@@ -12,7 +12,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Render va boshqa xostinglar uchun soxta server (Web Service to'xtab qolmasligi uchun)
+# Render uchun soxta server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -24,7 +24,7 @@ def run_health_check_server():
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     server.serve_forever()
 
-# Siz taqdim etgan Telegram Bot Token
+# Sizning Telegram Bot API Tokeningiz
 BOT_TOKEN = "8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs"
 
 # /start xabari
@@ -32,10 +32,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Salom! Men universal media va musiqa yuklovchi botman. 🚀\n\n"
         "🎬 **Video yuklash uchun:** Instagram, TikTok yoki YouTube havolasini yuboring.\n"
-        "🎵 **Musiqa qidirish uchun:** Qo'shiq nomini yoki xonandani yozib yuboring!"
+        "🎵 **Musiqa qidirish uchun:** Qo'shiq nomini yozib yuboring!"
     )
 
-# Xabarlarni qayta ishlash (Link yoki Qo'shiq nomi)
+# Xabarlarni qayta ishlash
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     
@@ -45,13 +45,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [
                 InlineKeyboardButton("📹 Video (Eng yuqori sifat)", callback_data=f"video|{text}"),
-                InlineKeyboardButton("🎵 MP3 (Audio)", callback_data=f"audio|{text}")
+                InlineKeyboardButton("🎵 Videodagi Musiqa (MP3)", callback_data=f"audio|{text}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Nimani yuklab olishni xohlaysiz?", reply_markup=reply_markup)
     
-    # Agar shunchaki tekst (qo'shiq nomi) bo'lsa -> Musiqa qidirish
+    # Qo'shiq nomi bo'lsa -> Qidiruv
     else:
         msg = await update.message.reply_text(f"🔍 **\"{text}\"** qo'shig'i qidirilmoqda...")
         file_path = None
@@ -61,7 +61,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'outtmpl': 'song_%(id)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
-                'default_search': 'ytsearch1', # YouTube'dan 1-natijani qidiradi
+                'default_search': 'ytsearch1',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
@@ -88,13 +88,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(f"Qidiruvda xatolik: {e}")
-            await msg.edit_text("❌ Musiqa topilmadi yoki yuklab bo'lmadi. Boshqacharoq yozib ko'ring.")
+            await msg.edit_text("❌ Musiqa topilmadi. Qayta urinib ko'ring.")
 
         finally:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
 
-# Link orqali yuklash tugmasi bosilganda
+# Tugmalar bosilganda
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -109,7 +109,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if download_type == "video":
             ydl_opts = {
-                'format': 'bestvideo+bestaudio/best', # Eng yuqori sifat
+                'format': 'bestvideo+bestaudio/best',
                 'merge_output_format': 'mp4',
                 'outtmpl': 'download_%(id)s.%(ext)s',
                 'quiet': True,
@@ -125,22 +125,27 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif download_type == "audio":
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'outtmpl': 'download_%(id)s.mp3',
+                'outtmpl': 'download_%(id)s.%(ext)s',
                 'quiet': True,
                 'no_warnings': True,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 file_path = f"download_{info['id']}.mp3"
 
             with open(file_path, 'rb') as audio_file:
-                await query.message.reply_audio(audio=audio_file, caption="✅ Audio (MP3) yuklab olindi!")
+                await query.message.reply_audio(audio=audio_file, caption="🎵 Videodagi musiqa yuklab olindi!")
 
         await msg.delete()
 
     except Exception as e:
         logging.error(f"Xatolik: {e}")
-        await msg.edit_text("❌ Yuklab bo'lmadi. Havola to'g'riligini va profil ochiqligini tekshiring.")
+        await msg.edit_text("❌ Yuklab bo'lmadi. Havolani qayta tekshirib ko'ring.")
 
     finally:
         if file_path and os.path.exists(file_path):
