@@ -28,19 +28,10 @@ logging.basicConfig(
 logger = logging.getLogger("InstaSaveBot")
 
 # ============================================================================
-# XAVFSIZLIK: Token va parol kodda emas, environment variable'dan olinadi.
-# Render.com -> Dashboard -> Environment -> qo'shing:
-#   BOT_TOKEN = <8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs>
-#   ADMIN_PASSWORD = <behruz700>
+# API TOKEN VA PAROL (Yangi tokeningiz joylandi)
 # ============================================================================
-BOT_TOKEN = os.environ.get("8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs")
-ADMIN_PASSWORD = os.environ.get("behruz700")
-
-if not BOT_TOKEN or not ADMIN_PASSWORD:
-    raise RuntimeError(
-        "BOT_TOKEN yoki ADMIN_PASSWORD environment variable topilmadi. "
-        "Render Dashboard -> Environment bo'limida sozlang."
-    )
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAE9-vTG79Rn40jU2lk1QY1fBEeWpmGQV5Q")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
 
 DB_FILE = "bot.db"
 MAX_FILE_SIZE_MB = 50          # Render bepul tarifida disk cheklangan
@@ -48,12 +39,11 @@ PLAYLIST_LIMIT = 5             # Playlistdan bir martada yuklanadigan max video 
 PROGRESS_UPDATE_INTERVAL = 3   # sekund - progress xabari qancha tez-tez yangilanadi
 
 # Har bir foydalanuvchi uchun "hozir nima yuklayapti" ma'lumotini vaqtincha saqlash
-# token -> {"url": str, "info": dict, "chat_id": int}
 pending_downloads = {}
 
 
 # ============================================================================
-# TILLAR (UZ / RU / EN) - chiroyli va izchil matnlar
+# TILLAR (UZ / RU / EN)
 # ============================================================================
 TEXTS = {
     "uz": {
@@ -197,7 +187,7 @@ def t(lang, key, **kwargs):
 
 
 # ============================================================================
-# MA'LUMOTLAR BAZASI (SQLite) - users.json o'rniga
+# MA'LUMOTLAR BAZASI (SQLite)
 # ============================================================================
 def db_init():
     conn = sqlite3.connect(DB_FILE)
@@ -251,7 +241,7 @@ def db_count_users():
 
 
 # ============================================================================
-# RENDER "SLEEP" REJIMIGA O'TIB QOLMASLIGI UCHUN HEALTH-CHECK SERVER
+# RENDER HEALTH-CHECK SERVER
 # ============================================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -269,7 +259,7 @@ def run_health_check_server():
 
 
 # ============================================================================
-# YORDAMCHI: yt-dlp sozlamalari
+# YORDAMCHI: yt-dlp SOZLAMALARI
 # ============================================================================
 def base_ydl_opts():
     opts = {
@@ -281,15 +271,12 @@ def base_ydl_opts():
             '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
         ),
     }
-    # Instagram/TikTok bloklay boshlasa, brauzerdan eksport qilingan
-    # cookies.txt faylini shu papkaga qo'ying - avtomatik ishlatiladi.
     if os.path.exists("cookies.txt"):
         opts['cookiefile'] = "cookies.txt"
     return opts
 
 
 def make_progress_hook(loop, bot, chat_id, message_id, lang):
-    """Yuklash jarayonini foydalanuvchiga real vaqtda ko'rsatish uchun hook."""
     last_edit = {"time": 0}
 
     def hook(d):
@@ -310,7 +297,7 @@ def make_progress_hook(loop, bot, chat_id, message_id, lang):
                     parse_mode="Markdown"
                 )
             except Exception:
-                pass  # xabar o'zgarmagan yoki eskirgan bo'lsa e'tibor bermaymiz
+                pass
 
         asyncio.run_coroutine_threadsafe(edit(), loop)
 
@@ -373,7 +360,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=uid, text=text)
             count += 1
-            await asyncio.sleep(0.05)  # Telegram flood-limit'ga tushmaslik uchun
+            await asyncio.sleep(0.05)
         except Exception:
             pass
 
@@ -381,7 +368,7 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================================================
-# LINK YUBORILGANDA: avval tahlil, keyin format tanlash tugmalari
+# LINK YUBORILGANDA
 # ============================================================================
 async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str, lang: str):
     msg = await update.message.reply_text(t(lang, "analyzing"), parse_mode="Markdown")
@@ -396,7 +383,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
         return
 
-    # Playlist bo'lsa - tasdiq so'raymiz
     if info.get('_type') == 'playlist' or (info.get('entries') and len(list(info.get('entries', []))) > 1):
         entries = list(info.get('entries', []))
         token = uuid.uuid4().hex[:10]
@@ -412,7 +398,6 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         )
         return
 
-    # Oddiy video - format tanlash tugmalari
     title = info.get('title', 'Media')
     token = uuid.uuid4().hex[:10]
     pending_downloads[token] = {"url": url, "chat_id": update.effective_chat.id, "title": title}
@@ -457,7 +442,7 @@ async def on_quality_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
             offer_extras=(choice == "video"),
         )
     except Exception:
-        pass  # xato xabari download_and_send ichida allaqachon yuborilgan
+        pass
 
 
 async def on_playlist_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -509,7 +494,6 @@ async def on_playlist_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Video yuborilgandan keyin: 'musiqasini alohida yuboraymi?' javobi."""
     query = update.callback_query
     await query.answer()
     lang = db_get_lang(update.effective_user.id)
@@ -533,14 +517,13 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 offer_extras=False,
             )
         except Exception:
-            pass  # xato xabari download_and_send ichida allaqachon yuborilgan
+            pass
     else:
         try:
             await query.delete_message()
         except Exception:
             pass
 
-    # Endi tavsif haqida so'raymiz (token hali ham pending_downloads'da)
     keyboard = [[
         InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"desc:{token}:yes"),
         InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"desc:{token}:no"),
@@ -554,13 +537,12 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_description_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """'Tavsifini yuboraymi?' javobi - shu bilan sessiya yakunlanadi."""
     query = update.callback_query
     await query.answer()
     lang = db_get_lang(update.effective_user.id)
 
     _, token, choice = query.data.split(":")
-    data = pending_downloads.pop(token, None)  # sessiya shu yerda tugaydi
+    data = pending_downloads.pop(token, None)
     if not data:
         await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
         return
@@ -568,8 +550,6 @@ async def on_description_choice(update: Update, context: ContextTypes.DEFAULT_TY
     if choice == "yes":
         description = data.get("description") or ""
         if description:
-            # Telegram xabar limiti ~4096 belgi; tavsif matnida Markdown belgilari
-            # bo'lishi mumkin bo'lgani uchun parse_mode ishlatmaymiz (xato bo'lmasligi uchun)
             description = description[:4000]
             header = {"uz": "📝 Tavsif:", "ru": "📝 Описание:", "en": "📝 Description:"}.get(lang, "📝 Tavsif:")
             await query.edit_message_text(f"{header}\n\n{description}")
@@ -583,7 +563,6 @@ async def on_description_choice(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def download_and_send(context, chat_id, status_message_id, url, lang, as_audio, offer_extras=False):
-    """Bitta video/audioni yuklab, foydalanuvchiga yuboradi."""
     loop = asyncio.get_running_loop()
     file_path = None
     outtmpl = f"dl_{uuid.uuid4().hex[:8]}.%(ext)s"
@@ -612,7 +591,6 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
             info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
             file_path = ydl.prepare_filename(info)
             if as_audio:
-                # FFmpegExtractAudio kengaytmani .mp3 ga o'zgartiradi
                 base, _ = os.path.splitext(file_path)
                 mp3_path = base + ".mp3"
                 if os.path.exists(mp3_path):
@@ -649,7 +627,6 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
             except Exception:
                 pass
 
-        # Video muvaffaqiyatli yuborilgandan keyin - musiqa va tavsif haqida so'raymiz
         if offer_extras and not as_audio:
             token = uuid.uuid4().hex[:10]
             pending_downloads[token] = {
@@ -685,9 +662,7 @@ async def download_and_send(context, chat_id, status_message_id, url, lang, as_a
 
 
 # ============================================================================
-# QO'SHIQ QIDIRISH - bir nechta natijani sinab, birinchisi ishlagunini topadi
-# (avvalgi versiyada faqat 1 ta natija sinalgani uchun ko'p hollarda "topilmadi"
-#  deb chiqib ketardi - shu yerda tuzatildi)
+# QO'SHIQ QIDIRISH
 # ============================================================================
 async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
     msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
@@ -741,16 +716,15 @@ async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE
                     caption=t(lang, "audio_caption", title=title), parse_mode="Markdown"
                 )
             await msg.delete()
-            return  # muvaffaqiyatli - to'xtaymiz
+            return
 
         except Exception as e:
             logger.warning(f"Nomzod ishlamadi ({video_url}): {e}")
-            continue  # keyingi nomzodni sinaymiz
+            continue
         finally:
             if file_path and os.path.exists(file_path):
                 os.remove(file_path)
 
-    # Barcha nomzodlar ishlamadi
     await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
 
 
