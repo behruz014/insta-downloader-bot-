@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import asyncio
 import logging
@@ -32,7 +33,6 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
 
 DB_FILE = "bot.db"
 pending_downloads = {}
-music_search_cache = {}
 
 # ============================================================================
 # TILLAR
@@ -52,14 +52,7 @@ TEXTS = {
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
-        "searching_music": "🔍 «{query}» bo'yicha musiqa qidirilmoqda...",
-        "music_select": "🎵 Kerakli musiqani tanlang:",
-        "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
-        "admin_denied": "❌ Taqiqlangan!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta",
-        "broadcast_empty": "⚠️ Xabar matnini yozing!",
-        "broadcast_done": "✅ Xabar yuborildi.",
-        "session_expired": "⚠️ Sessiya eskirgan, qaytadan qidirib ko'ring.",
+        "session_expired": "⚠️ Sessiya eskirgan, qaytadan yuborib ko'ring.",
         "ask_music": "🎵 Ushbu videoning musiqasi (MP3) kerakmi?",
         "btn_yes": "✅ Ha, MP3 kerak",
         "btn_no": "❌ Yo'q",
@@ -71,13 +64,6 @@ TEXTS = {
         "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Не удалось скачать.",
-        "searching_music": "🔍 Ищу «{query}»...",
-        "music_select": "🎵 Выберите нужный трек:",
-        "music_not_found": "❌ Музыка не найдена.",
-        "admin_denied": "❌ Доступ запрещён!",
-        "admin_panel": "📊 *Админ-панель*\n\n👥 Всего: *{count}*",
-        "broadcast_empty": "⚠️ Введите текст!",
-        "broadcast_done": "✅ Отправлено.",
         "session_expired": "⚠️ Сессия устарела.",
         "ask_music": "🎵 Нужна музыка (MP3) из этого видео?",
         "btn_yes": "✅ Да, нужен MP3",
@@ -90,13 +76,6 @@ TEXTS = {
         "video_caption": "✅ *Video ready!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
         "error_generic": "❌ Couldn't download.",
-        "searching_music": "🔍 Searching...",
-        "music_select": "🎵 Select the music:",
-        "music_not_found": "❌ Not found.",
-        "admin_denied": "❌ Access denied!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Users: *{count}*",
-        "broadcast_empty": "⚠️ Enter message!",
-        "broadcast_done": "⚠️ Sent.",
         "session_expired": "⚠️ Session expired.",
         "ask_music": "🎵 Do you need the music (MP3) from this video?",
         "btn_yes": "✅ Yes, send MP3",
@@ -135,67 +114,77 @@ def db_get_lang(user_id):
     conn.close()
     return row[0] if row else "uz"
 
-def db_all_user_ids():
-    conn = sqlite3.connect(DB_FILE)
-    rows = conn.execute("SELECT user_id FROM users").fetchall()
-    conn.close()
-    return [r[0] for r in rows]
-
-def db_count_users():
-    conn = sqlite3.connect(DB_FILE)
-    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    conn.close()
-    return count
-
 # ============================================================================
-# HEALTH-CHECK SERVER (Render o'chib qolmasligi uchun)
+# HEALTH CHECK SERVER
 # ============================================================================
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"OK")
-
-    def log_message(self, format, *args):
-        pass
+    def log_message(self, format, *args): pass
 
 def run_health_check_server():
     port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
+    HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
 
 # ============================================================================
-# MULTI-API VIDEO DOWNLOADER (Cobalt + Fallback APIs)
+# STRONG MULTI-PARSER INSTAGRAM DOWNLOADER
 # ============================================================================
-def fetch_video_url(url: str):
-    # 1. Cobalt API
-    try:
-        res = requests.post(
-            "https://api.cobalt.tools/api/json",
-            json={"url": url},
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=10
-        )
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("status") in ["stream", "redirect"]:
-                return data.get("url")
-    except Exception as e:
-        logger.error(f"Cobalt API failed: {e}")
+def get_instagram_video(url: str):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
 
-    # 2. Rapid API Fallback
+    # 1-METOD: SaveFrom / Instadownloader backend API
     try:
-        res = requests.get(f"https://api.vkrnot.com/v2/download?url={url}", timeout=10)
+        api_url = f"https://api.vkrnot.com/v2/download?url={url}"
+        res = requests.get(api_url, headers=headers, timeout=10)
         if res.status_code == 200:
             data = res.json()
             if data.get("data") and data["data"].get("url"):
                 return data["data"]["url"]
+            if isinstance(data.get("data"), list) and len(data["data"]) > 0:
+                return data["data"][0].get("url")
     except Exception as e:
-        logger.error(f"Secondary API failed: {e}")
+        logger.error(f"Method 1 failed: {e}")
+
+    # 2-METOD: Cobalt API (Alternative Instance)
+    try:
+        cobalt_urls = [
+            "https://api.cobalt.tools/api/json",
+            "https://cobalt-api.kwiatekmom.pl/api/json"
+        ]
+        for c_url in cobalt_urls:
+            res = requests.post(
+                c_url,
+                json={"url": url},
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                timeout=10
+            )
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("status") in ["stream", "redirect"]:
+                    return data.get("url")
+    except Exception as e:
+        logger.error(f"Method 2 (Cobalt) failed: {e}")
+
+    # 3-METOD: yt-dlp fallback (TikTok/YouTube uchun xavfsiz)
+    try:
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': 'bestvideo+bestaudio/best',
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get('url')
+    except Exception as e:
+        logger.error(f"Method 3 (yt-dlp) failed: {e}")
 
     return None
 
-def download_yt_audio(url: str):
+def download_audio_direct(url: str):
     outtmpl = f"dl_audio_{uuid.uuid4().hex[:8]}.%(ext)s"
     opts = {
         'quiet': True,
@@ -216,7 +205,7 @@ def download_yt_audio(url: str):
         return mp3_path if os.path.exists(mp3_path) else file_path
 
 # ============================================================================
-# HANDLERS
+# BOT HANDLERS
 # ============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_add_user(update.effective_user.id)
@@ -239,7 +228,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     chat_id = update.effective_chat.id
 
     loop = asyncio.get_running_loop()
-    video_url = await loop.run_in_executor(None, lambda: fetch_video_url(url))
+    video_url = await loop.run_in_executor(None, lambda: get_instagram_video(url))
 
     if video_url:
         try:
@@ -287,7 +276,7 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_running_loop()
         file_path = None
         try:
-            file_path = await loop.run_in_executor(None, lambda: download_yt_audio(data["url"]))
+            file_path = await loop.run_in_executor(None, lambda: download_audio_direct(data["url"]))
             with open(file_path, 'rb') as f:
                 await context.bot.send_audio(
                     chat_id=data["chat_id"],
@@ -298,7 +287,7 @@ async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await query.delete_message()
         except Exception as e:
-            logger.error(f"MP3 xatosi: {e}")
+            logger.error(f"MP3 Error: {e}")
             await query.edit_message_text(t(lang, "error_generic"), parse_mode="Markdown")
         finally:
             if file_path and os.path.exists(file_path):
@@ -320,7 +309,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if any(domain in text for domain in SUPPORTED_DOMAINS):
         await handle_link(update, context, text, lang)
     else:
-        await update.message.reply_text("🎵 Qo'shiq qidirish uchun qo'shiq nomini yuboring.")
+        await update.message.reply_text("📥 Yuklab olish uchun Instagram, TikTok yoki YouTube havolasini yuboring!")
 
 def main():
     db_init()
