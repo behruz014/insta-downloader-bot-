@@ -28,7 +28,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("InstaSaveBot")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAE9-vTG79Rn40jU2lk1QY1fBEeWpmGQV5Q")
+# YANGI TOKEN JOYLASHTIRILDI:
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAHup95JmO0p5uXgKH-Qyxy-jbdzCnYhg18")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
 
 DB_FILE = "bot.db"
@@ -129,7 +130,7 @@ def run_health_check_server():
     HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
 
 # ============================================================================
-# STRONG MULTI-PARSER INSTAGRAM DOWNLOADER
+# MULTI-PARSER INSTAGRAM DOWNLOADER
 # ============================================================================
 def get_instagram_video(url: str):
     headers = {
@@ -149,7 +150,7 @@ def get_instagram_video(url: str):
     except Exception as e:
         logger.error(f"Method 1 failed: {e}")
 
-    # 2-METOD: Cobalt API (Alternative Instance)
+    # 2-METOD: Cobalt API (Alternative Instances)
     try:
         cobalt_urls = [
             "https://api.cobalt.tools/api/json",
@@ -169,7 +170,7 @@ def get_instagram_video(url: str):
     except Exception as e:
         logger.error(f"Method 2 (Cobalt) failed: {e}")
 
-    # 3-METOD: yt-dlp fallback (TikTok/YouTube uchun xavfsiz)
+    # 3-METOD: yt-dlp fallback
     try:
         ydl_opts = {
             'quiet': True,
