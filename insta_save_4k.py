@@ -196,10 +196,13 @@ def base_ydl_opts():
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'user_agent': (
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        ),
+        'http_headers': {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            ),
+            'Accept-Language': 'en-US,en;q=0.9',
+        },
     }
     if os.path.exists("cookies.txt"):
         opts['cookiefile'] = "cookies.txt"
@@ -210,10 +213,6 @@ def base_ydl_opts():
 # MUSIQA QIDIRUV (DEEZER + YOUTUBE FALLBACK)
 # ============================================================================
 def search_music_combined(query: str):
-    """
-    1. Deezer'dan qidiradi
-    2. Natija kam yoki bo'lmasa YouTube'dan qidiradi
-    """
     results = []
     
     # Deezer Qidiruvi
@@ -234,7 +233,7 @@ def search_music_combined(query: str):
     except Exception as e:
         logger.error(f"Deezer Search Error: {e}")
 
-    # Agar Deezer kam natija bersa, YouTube Search qo'shiladi
+    # Youtube Search Fallback
     if len(results) < 3:
         try:
             opts = base_ydl_opts()
@@ -350,7 +349,7 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
 
     opts = base_ydl_opts()
     opts['outtmpl'] = outtmpl
-    opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+    opts['format'] = 'best[ext=mp4]/best'
     opts['max_filesize'] = MAX_FILE_SIZE_MB * 1024 * 1024
 
     try:
