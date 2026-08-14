@@ -1,543 +1,134 @@
 import os
-import time
-import uuid
-import asyncio
 import logging
-import sqlite3
-import requests
+import aiohttp
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes,
-)
-import yt_dlp
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ============================================================================
-# LOG SOZLAMALARI
-# ============================================================================
+# Log sozlamalari
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger("InstaSaveBot")
 
-# ============================================================================
-# API TOKEN VA KALITLAR
-# ============================================================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAE9-vTG79Rn40jU2lk1QY1fBEeWpmGQV5Q")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
-
-DB_FILE = "bot.db"
-MAX_FILE_SIZE_MB = 50
-
-pending_downloads = {}
-music_search_cache = {}
-
-# ============================================================================
-# TILLAR (UZ / RU / EN)
-# ============================================================================
-TEXTS = {
-    "uz": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": (
-            "✨ *InstaSave Botiga xush kelibsiz!* ✨\n\n"
-            "Men sizga sevimli medialaringizni bir necha soniyada yuklab beraman 🚀\n\n"
-            "📌 *Imkoniyatlarim:*\n"
-            "🎬 Instagram / TikTok / YouTube — link yuboring\n"
-            "🎵 Qo'shiq nomini yozing — men qidirib topaman\n\n"
-            "👇 Boshlash uchun havola yoki qo'shiq nomini yozing!"
-        ),
-        "analyzing": "🔎 Video yuklanmoqda...",
-        "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
-        "searching_music": "🔍 «{query}» bo'yicha musiqa qidirilmoqda...",
-        "music_select": "🎵 Kerakli musiqani tanlang:",
-        "music_not_found": "❌ Bu nom bo'yicha musiqa topilmadi.",
-        "admin_denied": "❌ Taqiqlangan!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Jami foydalanuvchilar: *{count}* ta",
-        "broadcast_empty": "⚠️ Xabar matnini yozing!",
-        "broadcast_done": "✅ Xabar yuborildi.",
-        "session_expired": "⚠️ Sessiya eskirgan, qaytadan qidirib ko'ring.",
-        "ask_music": "🎵 Ushbu videoning musiqasi (MP3) kerakmi?",
-        "btn_yes": "✅ Ha, MP3 kerak",
-        "btn_no": "❌ Yo'q",
-    },
-    "ru": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\nОтправьте ссылку или название песни!",
-        "analyzing": "🔎 Скачиваю видео...",
-        "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Не удалось скачать.",
-        "searching_music": "🔍 Ищу «{query}»...",
-        "music_select": "🎵 Выберите нужный трек:",
-        "music_not_found": "❌ Музыка не найдена.",
-        "admin_denied": "❌ Доступ запрещён!",
-        "admin_panel": "📊 *Админ-панель*\n\n👥 Всего: *{count}*",
-        "broadcast_empty": "⚠️ Введите текст!",
-        "broadcast_done": "✅ Отправлено.",
-        "session_expired": "⚠️ Сессия устарела.",
-        "ask_music": "🎵 Нужна музыка (MP3) из этого видео?",
-        "btn_yes": "✅ Да, нужен MP3",
-        "btn_no": "❌ Нет",
-    },
-    "en": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": "✨ *Welcome to InstaSave Bot!* ✨",
-        "analyzing": "🔎 Downloading video...",
-        "video_caption": "✅ *Video ready!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Couldn't download.",
-        "searching_music": "🔍 Searching...",
-        "music_select": "🎵 Select the music:",
-        "music_not_found": "❌ Not found.",
-        "admin_denied": "❌ Access denied!",
-        "admin_panel": "📊 *Admin Panel*\n\n👥 Users: *{count}*",
-        "broadcast_empty": "⚠️ Enter message!",
-        "broadcast_done": "⚠️ Sent.",
-        "session_expired": "⚠️ Session expired.",
-        "ask_music": "🎵 Do you need the music (MP3) from this video?",
-        "btn_yes": "✅ Yes, send MP3",
-        "btn_no": "❌ No",
-    }
-}
-
-
-def t(lang, key, **kwargs):
-    text = TEXTS.get(lang, TEXTS["uz"]).get(key, key)
-    return text.format(**kwargs) if kwargs else text
-
-
-# ============================================================================
-# DATABASE (SQLite)
-# ============================================================================
-def db_init():
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            lang TEXT DEFAULT 'uz',
-            joined_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-
-def db_add_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute(
-        "INSERT OR IGNORE INTO users (user_id, lang, joined_at) VALUES (?, 'uz', datetime('now'))",
-        (user_id,)
-    )
-    conn.commit()
-    conn.close()
-
-
-def db_set_lang(user_id, lang):
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
-    conn.commit()
-    conn.close()
-
-
-def db_get_lang(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    row = conn.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    conn.close()
-    return row[0] if row else "uz"
-
-
-def db_all_user_ids():
-    conn = sqlite3.connect(DB_FILE)
-    rows = conn.execute("SELECT user_id FROM users").fetchall()
-    conn.close()
-    return [r[0] for r in rows]
-
-
-def db_count_users():
-    conn = sqlite3.connect(DB_FILE)
-    count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-    conn.close()
-    return count
-
-
-# ============================================================================
-# HEALTH-CHECK SERVER
-# ============================================================================
+# Render uchun Health Check server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot Active")
-
-    def log_message(self, format, *args):
-        pass
-
+        self.wfile.write(b"Bot ishlamoqda!")
 
 def run_health_check_server():
     port = int(os.environ.get("PORT", 8080))
-    HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    server.serve_forever()
 
+BOT_TOKEN = "8387237045:AAFbN2d1JkZhj3Cak2SsQF5ob7paRbb2iDs"
 
-# ============================================================================
-# HELPER: yt-dlp SOZLAMALARI
-# ============================================================================
-def base_ydl_opts():
-    opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-        'http_headers': {
-            'User-Agent': (
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                '(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-            ),
-            'Accept-Language': 'en-US,en;q=0.9',
-        },
+# Cobalt API yordamida yuklash funksiyasi
+async def fetch_from_cobalt(url: str, is_audio: bool = False):
+    api_url = "https://api.cobalt.tools/"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
-    if os.path.exists("cookies.txt"):
-        opts['cookiefile'] = "cookies.txt"
-    return opts
+    payload = {
+        "url": url,
+        "downloadMode": "audio" if is_audio else "auto",
+        "audioFormat": "mp3"
+    }
 
+    async with aiohttp.ClientSession() as session:
+        async with session.post(api_url, json=payload, headers=headers) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("url")
+            return None
 
-# ============================================================================
-# MUSIQA QIDIRUV (DEEZER + YOUTUBE FALLBACK)
-# ============================================================================
-def search_music_combined(query: str):
-    results = []
-    
-    # Deezer Qidiruvi
-    try:
-        url = f"https://api.deezer.com/search?q={requests.utils.quote(query)}&limit=5"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            for song in data.get("data", []):
-                preview = song.get("preview")
-                if preview:
-                    results.append({
-                        "source": "deezer",
-                        "title": song.get("title"),
-                        "artist": song.get("artist", {}).get("name"),
-                        "audio_url": preview,
-                    })
-    except Exception as e:
-        logger.error(f"Deezer Search Error: {e}")
-
-    # Youtube Search Fallback
-    if len(results) < 3:
-        try:
-            opts = base_ydl_opts()
-            opts.update({
-                'extract_flat': True,
-                'default_search': 'ytsearch5:'
-            })
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(query, download=False)
-                entries = info.get('entries', [])
-                for entry in entries:
-                    results.append({
-                        "source": "youtube",
-                        "title": entry.get('title', 'Musiqa'),
-                        "artist": entry.get('uploader', 'YouTube'),
-                        "url": entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}"
-                    })
-        except Exception as e:
-            logger.error(f"YouTube Search Error: {e}")
-
-    return results
-
-
-def download_yt_audio(url: str):
-    outtmpl = f"dl_audio_{uuid.uuid4().hex[:8]}.%(ext)s"
-    opts = base_ydl_opts()
-    opts.update({
-        'format': 'bestaudio/best',
-        'outtmpl': outtmpl,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-    })
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        file_path = ydl.prepare_filename(info)
-        base, _ = os.path.splitext(file_path)
-        mp3_path = base + ".mp3"
-        if os.path.exists(mp3_path):
-            return mp3_path
-        return file_path
-
-
-# ============================================================================
-# HANDLERS
-# ============================================================================
+# /start xabari
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db_add_user(update.effective_user.id)
-    keyboard = [[
-        InlineKeyboardButton("🇺🇿 O'zbek", callback_data="lang:uz"),
-        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru"),
-        InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-    ]]
-    await update.message.reply_text(
-        TEXTS["uz"]["choose_lang"],
-        reply_markup=InlineKeyboardMarkup(keyboard)
+    text = (
+        "<b>Salom! Men media yuklovchi botman.</b> 🚀\n\n"
+        "🎬 <b>Video yuklash uchun:</b>\n"
+        "<i>Instagram, TikTok yoki YouTube linkini yuboring.</i>"
     )
+    await update.message.reply_text(text, parse_mode="HTML")
 
+# Xabarlarni qabul qilish
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    
+    supported = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be", "vt.tiktok.com"]
+    
+    if any(domain in text for domain in supported):
+        keyboard = [
+            [
+                InlineKeyboardButton("📹 Video", callback_data=f"video|{text}"),
+                InlineKeyboardButton("🎵 MP3 (Audio)", callback_data=f"audio|{text}")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            "<b>Yuklab olish turini tanlang:</b> 📥", 
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(
+            "❌ <b>Noto'g'ri havola!</b>\n<i>Iltimos, Instagram, TikTok yoki YouTube linkini yuboring.</i>",
+            parse_mode="HTML"
+        )
 
-async def on_language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Tugma bosilganda
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    lang = query.data.split(":")[1]
-    db_set_lang(update.effective_user.id, lang)
-    await query.edit_message_text(t(lang, "welcome"), parse_mode="Markdown")
 
+    data = query.data.split("|", 1)
+    download_type = data[0]
+    url = data[1]
 
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = db_get_lang(update.effective_user.id)
-    args = context.args
-    if not args or args[0] != ADMIN_PASSWORD:
-        await update.message.reply_text(t(lang, "admin_denied"), parse_mode="Markdown")
-        return
-    await update.message.reply_text(
-        t(lang, "admin_panel", count=db_count_users()),
-        parse_mode="Markdown"
-    )
-
-
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = db_get_lang(update.effective_user.id)
-    args = context.args
-    if not args or args[0] != ADMIN_PASSWORD:
-        await update.message.reply_text(t(lang, "admin_denied"), parse_mode="Markdown")
-        return
-
-    text = " ".join(args[1:])
-    if not text:
-        await update.message.reply_text(t(lang, "broadcast_empty"), parse_mode="Markdown")
-        return
-
-    count = 0
-    for uid in db_all_user_ids():
-        try:
-            await context.bot.send_message(chat_id=uid, text=text)
-            count += 1
-            await asyncio.sleep(0.05)
-        except Exception:
-            pass
-
-    await update.message.reply_text(t(lang, "broadcast_done", count=count), parse_mode="Markdown")
-
-
-async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str, lang: str):
-    msg = await update.message.reply_text(t(lang, "analyzing"), parse_mode="Markdown")
-    chat_id = update.effective_chat.id
+    msg = await query.message.edit_text("⏳ <b>Media tayyorlanmoqda, kuting...</b>", parse_mode="HTML")
 
     try:
-        # Bepul Cobalt API orqali videoni olish (Cookie va Blokirovkasiz)
-        api_url = "https://api.cobalt.tools/api/json"
-        payload = {"url": url}
-        headers = {"Accept": "application/json", "Content-Type": "application/json"}
-        
-        response = requests.post(api_url, json=payload, headers=headers, timeout=15)
-        data = response.json()
+        is_audio = True if download_type == "audio" else False
+        download_link = await fetch_from_cobalt(url, is_audio=is_audio)
 
-        if data.get("status") in ["stream", "redirect"]:
-            video_url = data.get("url")
-            
-            try:
-                await msg.delete()
-            except Exception:
-                pass
+        if not download_link:
+            await msg.edit_text("❌ <b>Xatolik!</b> Videoni yuklab bo'lmadi. Profil yopiq bo'lishi mumkin.", parse_mode="HTML")
+            return
 
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video_url,
-                caption=t(lang, "video_caption"),
-                parse_mode="Markdown"
-            )
-
-            token = uuid.uuid4().hex[:10]
-            pending_downloads[token] = {"url": url, "chat_id": chat_id}
-
-            keyboard = [[
-                InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"music:{token}:yes"),
-                InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"music:{token}:no"),
-            ]]
-
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=t(lang, "ask_music"),
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
+        if download_type == "video":
+            await query.message.reply_video(
+                video=download_link,
+                caption="✅ <b>Muvaffaqiyatli yuklab olindi!</b>",
+                parse_mode="HTML"
             )
         else:
-            await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
-
-    except Exception as e:
-        logger.error(f"Yuklash xatoligi: {e}")
-        await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
-
-
-async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, token, choice = query.data.split(":")
-    data = pending_downloads.pop(token, None)
-
-    if not data:
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    if choice == "yes":
-        await query.edit_message_text("⏳ MP3 audio yuklanmoqda...", parse_mode="Markdown")
-        
-        loop = asyncio.get_running_loop()
-        file_path = None
-
-        try:
-            file_path = await loop.run_in_executor(None, lambda: download_yt_audio(data["url"]))
-            title = "Audio"
-            with open(file_path, 'rb') as f:
-                await context.bot.send_audio(
-                    chat_id=data["chat_id"],
-                    audio=f,
-                    title=title,
-                    caption=t(lang, "audio_caption", title=title),
-                    parse_mode="Markdown"
-                )
-            await query.delete_message()
-        except Exception as e:
-            logger.error(f"MP3 yuklash xatosi: {e}")
-            await query.edit_message_text(t(lang, "error_generic"), parse_mode="Markdown")
-        finally:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-    else:
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
-
-
-async def handle_music_search(update: Update, context: ContextTypes.DEFAULT_TYPE, query_text: str, lang: str):
-    msg = await update.message.reply_text(t(lang, "searching_music", query=query_text), parse_mode="Markdown")
-    loop = asyncio.get_running_loop()
-
-    results = await loop.run_in_executor(None, lambda: search_music_combined(query_text))
-
-    if not results:
-        await msg.edit_text(t(lang, "music_not_found"), parse_mode="Markdown")
-        return
-
-    keyboard = []
-    search_id = uuid.uuid4().hex[:8]
-    music_search_cache[search_id] = results
-
-    for idx, item in enumerate(results[:5]):
-        btn_text = f"🎵 {item['artist']} - {item['title']}"[:35]
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"dlm:{search_id}:{idx}")])
-
-    await msg.edit_text(
-        t(lang, "music_select"),
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-
-async def on_download_selected_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, search_id, idx_str = query.data.split(":")
-    idx = int(idx_str)
-
-    results = music_search_cache.get(search_id)
-    if not results or idx >= len(results):
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    item = results[idx]
-    await query.edit_message_text("⏳ Musiqa yuklanmoqda...", parse_mode="Markdown")
-    loop = asyncio.get_running_loop()
-
-    try:
-        full_title = f"{item['artist']} - {item['title']}"
-        if item["source"] == "deezer":
-            await context.bot.send_audio(
-                chat_id=update.effective_chat.id,
-                audio=item["audio_url"],
-                title=item["title"],
-                performer=item["artist"],
-                caption=t(lang, "audio_caption", title=full_title),
-                parse_mode="Markdown"
+            await query.message.reply_audio(
+                audio=download_link,
+                caption="✅ <b>Audio yuklab olindi!</b>",
+                parse_mode="HTML"
             )
-        else: # YouTube Source
-            file_path = await loop.run_in_executor(None, lambda: download_yt_audio(item["url"]))
-            with open(file_path, 'rb') as f:
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=f,
-                    title=item["title"],
-                    performer=item["artist"],
-                    caption=t(lang, "audio_caption", title=full_title),
-                    parse_mode="Markdown"
-                )
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        
-        await query.delete_message()
+
+        await msg.delete()
+
     except Exception as e:
-        logger.error(f"Download Selected Music Error: {e}")
-        await query.edit_message_text(t(lang, "error_generic"), parse_mode="Markdown")
-
-
-SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
-
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    db_add_user(user_id)
-    lang = db_get_lang(user_id)
-
-    text = update.message.text.strip()
-
-    if any(domain in text for domain in SUPPORTED_DOMAINS):
-        await handle_link(update, context, text, lang)
-    else:
-        await handle_music_search(update, context, text, lang)
-
+        logging.error(f"Xatolik: {e}")
+        await msg.edit_text("❌ <b>Yuklashda xatolik yuz berdi.</b>", parse_mode="HTML")
 
 def main():
-    db_init()
     Thread(target=run_health_check_server, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CallbackQueryHandler(on_language_chosen, pattern=r"^lang:"))
-    app.add_handler(CallbackQueryHandler(on_music_choice, pattern=r"^music:"))
-    app.add_handler(CallbackQueryHandler(on_download_selected_music, pattern=r"^dlm:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_callback))
 
-    logger.info("Bot ishga tushdi...")
+    print("Bot ishga tushdi...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
