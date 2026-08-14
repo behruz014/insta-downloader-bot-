@@ -1,3 +1,5 @@
 python-telegram-bot
 yt-dlp
 yt-dlp>=2024.08.06
+aiogram>=3.0.0
+yt-dlp>=2024.08.06
