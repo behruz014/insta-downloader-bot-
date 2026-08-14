@@ -28,10 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("InstaSaveBot")
 
-# YANGI TOKEN JOYLASHTIRILDI:
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAHup95JmO0p5uXgKH-Qyxy-jbdzCnYhg18")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "behruz700")
-
 DB_FILE = "bot.db"
 pending_downloads = {}
 
@@ -47,7 +44,7 @@ TEXTS = {
             "📌 *Imkoniyatlarim:*\n"
             "🎬 Instagram / TikTok / YouTube — link yuboring\n"
             "🎵 Qo'shiq nomini yozing — men qidirib topaman\n\n"
-            "👇 Boshlash uchun havola yoki qo'shiq nomini yozing!"
+            "👇 Boshlash uchun havola yuboring!"
         ),
         "analyzing": "🔎 Video yuklanmoqda...",
         "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
@@ -60,7 +57,7 @@ TEXTS = {
     },
     "ru": {
         "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\nОтправьте ссылку или название песни!",
+        "welcome": "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\nОтправьте ссылку!",
         "analyzing": "🔎 Скачиваю видео...",
         "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
         "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
@@ -130,58 +127,71 @@ def run_health_check_server():
     HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
 
 # ============================================================================
-# MULTI-PARSER INSTAGRAM DOWNLOADER
+# INSTAGRAM MULTI-PARSER (STABLE & DIRECT)
 # ============================================================================
 def get_instagram_video(url: str):
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
     }
 
-    # 1-METOD: SaveFrom / Instadownloader backend API
+    # 1-METOD: DDInstagram Direct URL Extraction (Instagram Rate-Limit cheklovlarini buzadi)
     try:
-        api_url = f"https://api.vkrnot.com/v2/download?url={url}"
-        res = requests.get(api_url, headers=headers, timeout=10)
+        dd_url = url.replace("instagram.com", "ddinstagram.com")
+        res = requests.get(dd_url, headers=headers, timeout=8, allow_redirects=True)
+        if res.status_code == 200:
+            video_match = re.search(r'<meta property="og:video" content="([^"]+)"', res.text)
+            if video_match:
+                direct_video_url = video_match.group(1).replace("&amp;", "&")
+                return direct_video_url
+    except Exception as e:
+        logger.error(f"Method 1 (DDInstagram) failed: {e}")
+
+    # 2-METOD: FastSaver Public API
+    try:
+        api_url = f"https://api.fastsaver.net/api/instagram?url={url}"
+        res = requests.get(api_url, headers=headers, timeout=8)
         if res.status_code == 200:
             data = res.json()
-            if data.get("data") and data["data"].get("url"):
-                return data["data"]["url"]
-            if isinstance(data.get("data"), list) and len(data["data"]) > 0:
+            if data.get("url"):
+                return data.get("url")
+            if data.get("data") and len(data["data"]) > 0:
                 return data["data"][0].get("url")
     except Exception as e:
-        logger.error(f"Method 1 failed: {e}")
+        logger.error(f"Method 2 (FastSaver) failed: {e}")
 
-    # 2-METOD: Cobalt API (Alternative Instances)
+    # 3-METOD: Cobalt Primary Node
     try:
-        cobalt_urls = [
+        res = requests.post(
             "https://api.cobalt.tools/api/json",
-            "https://cobalt-api.kwiatekmom.pl/api/json"
-        ]
-        for c_url in cobalt_urls:
-            res = requests.post(
-                c_url,
-                json={"url": url},
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-                timeout=10
-            )
-            if res.status_code == 200:
-                data = res.json()
-                if data.get("status") in ["stream", "redirect"]:
-                    return data.get("url")
+            json={"url": url},
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0"
+            },
+            timeout=8
+        )
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("url"):
+                return data.get("url")
     except Exception as e:
-        logger.error(f"Method 2 (Cobalt) failed: {e}")
+        logger.error(f"Method 3 (Cobalt) failed: {e}")
 
-    # 3-METOD: yt-dlp fallback
+    # 4-METOD: yt-dlp with Browser User-Agent impersonation
     try:
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
-            'format': 'bestvideo+bestaudio/best',
+            'format': 'best',
+            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             return info.get('url')
     except Exception as e:
-        logger.error(f"Method 3 (yt-dlp) failed: {e}")
+        logger.error(f"Method 4 (yt-dlp) failed: {e}")
 
     return None
 
