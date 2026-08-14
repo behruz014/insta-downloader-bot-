@@ -2,10 +2,3 @@ python-telegram-bot>=20.0
 requests>=2.31.0
 yt-dlp
 aiohttp
-python-telegram-bot>=20.0
-requests>=2.31.0
-yt-dlp
-aiohttp
-python-telegram-bot>=20.0
-requests>=2.31.0
-yt-dlp
