@@ -343,57 +343,50 @@ async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     msg = await update.message.reply_text(t(lang, "analyzing"), parse_mode="Markdown")
     chat_id = update.effective_chat.id
 
-    loop = asyncio.get_running_loop()
-    outtmpl = f"dl_{uuid.uuid4().hex[:8]}.%(ext)s"
-    file_path = None
-
-    opts = base_ydl_opts()
-    opts['outtmpl'] = outtmpl
-    opts['format'] = 'best[ext=mp4]/best'
-    opts['max_filesize'] = MAX_FILE_SIZE_MB * 1024 * 1024
-
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = await loop.run_in_executor(None, lambda: ydl.extract_info(url, download=True))
-            file_path = ydl.prepare_filename(info)
+        # Bepul Cobalt API orqali videoni olish (Cookie va Blokirovkasiz)
+        api_url = "https://api.cobalt.tools/api/json"
+        payload = {"url": url}
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        
+        response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+        data = response.json()
 
-        if not os.path.exists(file_path):
-            raise FileNotFoundError("Fayl topilmadi")
+        if data.get("status") in ["stream", "redirect"]:
+            video_url = data.get("url")
+            
+            try:
+                await msg.delete()
+            except Exception:
+                pass
 
-        try:
-            await msg.delete()
-        except Exception:
-            pass
-
-        with open(file_path, 'rb') as f:
             await context.bot.send_video(
                 chat_id=chat_id,
-                video=f,
+                video=video_url,
                 caption=t(lang, "video_caption"),
                 parse_mode="Markdown"
             )
 
-        token = uuid.uuid4().hex[:10]
-        pending_downloads[token] = {"url": url, "chat_id": chat_id}
+            token = uuid.uuid4().hex[:10]
+            pending_downloads[token] = {"url": url, "chat_id": chat_id}
 
-        keyboard = [[
-            InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"music:{token}:yes"),
-            InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"music:{token}:no"),
-        ]]
+            keyboard = [[
+                InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"music:{token}:yes"),
+                InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"music:{token}:no"),
+            ]]
 
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "ask_music"),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=t(lang, "ask_music"),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Yuklash xatoligi: {e}")
         await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
-    finally:
-        if file_path and os.path.exists(file_path):
-            os.remove(file_path)
 
 
 async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
