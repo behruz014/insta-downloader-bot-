@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sqlite3
 import requests
+from urllib.parse import urlparse, parse_qs
 from threading import Thread
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -42,8 +43,7 @@ TEXTS = {
             "✨ *InstaSave Botiga xush kelibsiz!* ✨\n\n"
             "Men sizga sevimli medialaringizni bir necha soniyada yuklab beraman 🚀\n\n"
             "📌 *Imkoniyatlarim:*\n"
-            "🎬 Instagram / TikTok / YouTube — link yuboring\n"
-            "🎵 Qo'shiq nomini yozing — men qidirib topaman\n\n"
+            "🎬 Instagram / TikTok / YouTube — link yuboring\n\n"
             "👇 Boshlash uchun havola yuboring!"
         ),
         "analyzing": "🔎 Video yuklanmoqda...",
@@ -127,68 +127,78 @@ def run_health_check_server():
     HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
 
 # ============================================================================
-# INSTAGRAM MULTI-PARSER (STABLE & DIRECT)
+# URL CLEANER (HAVOLANI TOZALASH)
 # ============================================================================
-def get_instagram_video(url: str):
+def clean_instagram_url(url: str) -> str:
+    # Instagram havolalaridagi ortiqcha ?igsh=... kabi parametrlarni olib tashlaydi
+    match = re.search(r'(https?://(?:www\.)?instagram\.com/(?:p|reel|reels|tv)/[A-Za-z0-9_-]+)', url)
+    if match:
+        return match.group(1) + "/"
+    return url
+
+# ============================================================================
+# INSTAGRAM MULTI-PARSER
+# ============================================================================
+def get_instagram_video(raw_url: str):
+    clean_url = clean_instagram_url(raw_url)
+    logger.info(f"Tozalangan URL: {clean_url}")
+
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': '*/*'
     }
 
-    # 1-METOD: DDInstagram Direct URL Extraction (Instagram Rate-Limit cheklovlarini buzadi)
+    # 1-METOD: SnapInst Backend Scraper API
     try:
-        dd_url = url.replace("instagram.com", "ddinstagram.com")
-        res = requests.get(dd_url, headers=headers, timeout=8, allow_redirects=True)
-        if res.status_code == 200:
-            video_match = re.search(r'<meta property="og:video" content="([^"]+)"', res.text)
-            if video_match:
-                direct_video_url = video_match.group(1).replace("&amp;", "&")
-                return direct_video_url
+        api_res = requests.post(
+            "https://snapinst.app/action2.php",
+            data={"url": clean_url, "action": "post"},
+            headers=headers,
+            timeout=10
+        )
+        if api_res.status_code == 200:
+            urls = re.findall(r'href="(https?://[^"]+)"', api_res.text)
+            for u in urls:
+                if "cdninstagram.com" in u or "fbcdn.net" in u:
+                    return u.replace("&amp;", "&")
     except Exception as e:
-        logger.error(f"Method 1 (DDInstagram) failed: {e}")
+        logger.error(f"Method 1 (SnapInst) failed: {e}")
 
-    # 2-METOD: FastSaver Public API
+    # 2-METOD: Cobalt Public API Node
     try:
-        api_url = f"https://api.fastsaver.net/api/instagram?url={url}"
-        res = requests.get(api_url, headers=headers, timeout=8)
-        if res.status_code == 200:
-            data = res.json()
+        cobalt_res = requests.post(
+            "https://api.cobalt.tools/api/json",
+            json={"url": clean_url},
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            timeout=10
+        )
+        if cobalt_res.status_code == 200:
+            data = cobalt_res.json()
             if data.get("url"):
                 return data.get("url")
-            if data.get("data") and len(data["data"]) > 0:
+    except Exception as e:
+        logger.error(f"Method 2 (Cobalt) failed: {e}")
+
+    # 3-METOD: Instadownloader Proxy Parser
+    try:
+        res = requests.get(f"https://api.vkrnot.com/v2/download?url={clean_url}", headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get("data") and isinstance(data["data"], list) and len(data["data"]) > 0:
                 return data["data"][0].get("url")
     except Exception as e:
-        logger.error(f"Method 2 (FastSaver) failed: {e}")
+        logger.error(f"Method 3 failed: {e}")
 
-    # 3-METOD: Cobalt Primary Node
-    try:
-        res = requests.post(
-            "https://api.cobalt.tools/api/json",
-            json={"url": url},
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0"
-            },
-            timeout=8
-        )
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("url"):
-                return data.get("url")
-    except Exception as e:
-        logger.error(f"Method 3 (Cobalt) failed: {e}")
-
-    # 4-METOD: yt-dlp with Browser User-Agent impersonation
+    # 4-METOD: yt-dlp fallback
     try:
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'format': 'best',
-            'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'extractor_args': {'instagram': {'legacy_api': ['true']}}
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+            info = ydl.extract_info(clean_url, download=False)
             return info.get('url')
     except Exception as e:
         logger.error(f"Method 4 (yt-dlp) failed: {e}")
@@ -196,6 +206,7 @@ def get_instagram_video(url: str):
     return None
 
 def download_audio_direct(url: str):
+    clean_url = clean_instagram_url(url)
     outtmpl = f"dl_audio_{uuid.uuid4().hex[:8]}.%(ext)s"
     opts = {
         'quiet': True,
@@ -209,7 +220,7 @@ def download_audio_direct(url: str):
         }],
     }
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(clean_url, download=True)
         file_path = ydl.prepare_filename(info)
         base, _ = os.path.splitext(file_path)
         mp3_path = base + ".mp3"
