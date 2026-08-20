@@ -1,349 +1,128 @@
 import os
-import re
 import uuid
 import asyncio
-import logging
-import sqlite3
-import requests
-from urllib.parse import urlparse, parse_qs
-from threading import Thread
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes,
-)
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import yt_dlp
 
-# ============================================================================
-# LOG SOZLAMALARI
-# ============================================================================
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger("InstaSaveBot")
+# ==========================================
+# SOZLAMALAR
+# ==========================================
+BOT_TOKEN = "8476281963:AAHq_8j7cT49_UbkM8P5aZ1JPk7DGhwsELk"
+SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8387237045:AAHup95JmO0p5uXgKH-Qyxy-jbdzCnYhg18")
-DB_FILE = "bot.db"
-pending_downloads = {}
-
-# ============================================================================
-# TILLAR
-# ============================================================================
-TEXTS = {
-    "uz": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": (
-            "✨ *InstaSave Botiga xush kelibsiz!* ✨\n\n"
-            "Men sizga sevimli medialaringizni bir necha soniyada yuklab beraman 🚀\n\n"
-            "📌 *Imkoniyatlarim:*\n"
-            "🎬 Instagram / TikTok / YouTube — link yuboring\n\n"
-            "👇 Boshlash uchun havola yuboring!"
-        ),
-        "analyzing": "🔎 Video yuklanmoqda...",
-        "video_caption": "✅ *Video tayyor!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Yuklab bo'lmadi. Havolani tekshiring yoki media yopiq bo'lishi mumkin.",
-        "session_expired": "⚠️ Sessiya eskirgan, qaytadan yuborib ko'ring.",
-        "ask_music": "🎵 Ushbu videoning musiqasi (MP3) kerakmi?",
-        "btn_yes": "✅ Ha, MP3 kerak",
-        "btn_no": "❌ Yo'q",
-    },
-    "ru": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": "✨ *Добро пожаловать в InstaSave Bot!* ✨\n\nОтправьте ссылку!",
-        "analyzing": "🔎 Скачиваю видео...",
-        "video_caption": "✅ *Видео готово!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Не удалось скачать.",
-        "session_expired": "⚠️ Сессия устарела.",
-        "ask_music": "🎵 Нужна музыка (MP3) из этого видео?",
-        "btn_yes": "✅ Да, нужен MP3",
-        "btn_no": "❌ Нет",
-    },
-    "en": {
-        "choose_lang": "🌐 Tilni tanlang / Choose language / Выберите язык",
-        "welcome": "✨ *Welcome to InstaSave Bot!* ✨",
-        "analyzing": "🔎 Downloading video...",
-        "video_caption": "✅ *Video ready!*\n\n🤖 @InstaSaveBot",
-        "audio_caption": "🎧 *{title}*\n\n🤖 @InstaSaveBot",
-        "error_generic": "❌ Couldn't download.",
-        "session_expired": "⚠️ Session expired.",
-        "ask_music": "🎵 Do you need the music (MP3) from this video?",
-        "btn_yes": "✅ Yes, send MP3",
-        "btn_no": "❌ No",
-    }
-}
-
-def t(lang, key, **kwargs):
-    text = TEXTS.get(lang, TEXTS["uz"]).get(key, key)
-    return text.format(**kwargs) if kwargs else text
-
-# ============================================================================
-# DATABASE
-# ============================================================================
-def db_init():
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, lang TEXT DEFAULT 'uz', joined_at TEXT)")
-    conn.commit()
-    conn.close()
-
-def db_add_user(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("INSERT OR IGNORE INTO users (user_id, lang, joined_at) VALUES (?, 'uz', datetime('now'))", (user_id,))
-    conn.commit()
-    conn.close()
-
-def db_set_lang(user_id, lang):
-    conn = sqlite3.connect(DB_FILE)
-    conn.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
-    conn.commit()
-    conn.close()
-
-def db_get_lang(user_id):
-    conn = sqlite3.connect(DB_FILE)
-    row = conn.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,)).fetchone()
-    conn.close()
-    return row[0] if row else "uz"
-
-# ============================================================================
-# HEALTH CHECK SERVER
-# ============================================================================
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, format, *args): pass
-
-def run_health_check_server():
-    port = int(os.environ.get("PORT", 8080))
-    HTTPServer(('0.0.0.0', port), HealthCheckHandler).serve_forever()
-
-# ============================================================================
-# URL CLEANER (HAVOLANI TOZALASH)
-# ============================================================================
-def clean_instagram_url(url: str) -> str:
-    # Instagram havolalaridagi ortiqcha ?igsh=... kabi parametrlarni olib tashlaydi
-    match = re.search(r'(https?://(?:www\.)?instagram\.com/(?:p|reel|reels|tv)/[A-Za-z0-9_-]+)', url)
-    if match:
-        return match.group(1) + "/"
-    return url
-
-# ============================================================================
-# INSTAGRAM MULTI-PARSER
-# ============================================================================
-def get_instagram_video(raw_url: str):
-    clean_url = clean_instagram_url(raw_url)
-    logger.info(f"Tozalangan URL: {clean_url}")
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': '*/*'
-    }
-
-    # 1-METOD: SnapInst Backend Scraper API
-    try:
-        api_res = requests.post(
-            "https://snapinst.app/action2.php",
-            data={"url": clean_url, "action": "post"},
-            headers=headers,
-            timeout=10
-        )
-        if api_res.status_code == 200:
-            urls = re.findall(r'href="(https?://[^"]+)"', api_res.text)
-            for u in urls:
-                if "cdninstagram.com" in u or "fbcdn.net" in u:
-                    return u.replace("&amp;", "&")
-    except Exception as e:
-        logger.error(f"Method 1 (SnapInst) failed: {e}")
-
-    # 2-METOD: Cobalt Public API Node
-    try:
-        cobalt_res = requests.post(
-            "https://api.cobalt.tools/api/json",
-            json={"url": clean_url},
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=10
-        )
-        if cobalt_res.status_code == 200:
-            data = cobalt_res.json()
-            if data.get("url"):
-                return data.get("url")
-    except Exception as e:
-        logger.error(f"Method 2 (Cobalt) failed: {e}")
-
-    # 3-METOD: Instadownloader Proxy Parser
-    try:
-        res = requests.get(f"https://api.vkrnot.com/v2/download?url={clean_url}", headers=headers, timeout=10)
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("data") and isinstance(data["data"], list) and len(data["data"]) > 0:
-                return data["data"][0].get("url")
-    except Exception as e:
-        logger.error(f"Method 3 failed: {e}")
-
-    # 4-METOD: yt-dlp fallback
-    try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'format': 'best',
-            'extractor_args': {'instagram': {'legacy_api': ['true']}}
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(clean_url, download=False)
-            return info.get('url')
-    except Exception as e:
-        logger.error(f"Method 4 (yt-dlp) failed: {e}")
-
-    return None
-
-def download_audio_direct(url: str):
-    clean_url = clean_instagram_url(url)
-    outtmpl = f"dl_audio_{uuid.uuid4().hex[:8]}.%(ext)s"
+def get_ydl_options(outtmpl, is_audio=False):
     opts = {
         'quiet': True,
         'no_warnings': True,
-        'format': 'bestaudio/best',
         'outtmpl': outtmpl,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
     }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(clean_url, download=True)
-        file_path = ydl.prepare_filename(info)
-        base, _ = os.path.splitext(file_path)
-        mp3_path = base + ".mp3"
-        return mp3_path if os.path.exists(mp3_path) else file_path
+    if is_audio:
+        opts.update({
+            'format': 'bestaudio/best',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+        })
+    else:
+        opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+    return opts
 
-# ============================================================================
-# BOT HANDLERS
-# ============================================================================
+# ==========================================
+# HANDLERLAR
+# ==========================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db_add_user(update.effective_user.id)
-    keyboard = [[
-        InlineKeyboardButton("🇺🇿 O'zbek", callback_data="lang:uz"),
-        InlineKeyboardButton("🇷🇺 Русский", callback_data="lang:ru"),
-        InlineKeyboardButton("🇬🇧 English", callback_data="lang:en"),
-    ]]
-    await update.message.reply_text(TEXTS["uz"]["choose_lang"], reply_markup=InlineKeyboardMarkup(keyboard))
+    text = (
+        "👋 *Xush kelibsiz!*\n\n"
+        "📥 *Video yuklash uchun:* Instagram, TikTok yoki YouTube linkini yuboring.\n"
+        "🎵 *Musiqa topish uchun:* Qo'shiq nomini yoki xonandani yozing."
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
 
-async def on_language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = query.data.split(":")[1]
-    db_set_lang(update.effective_user.id, lang)
-    await query.edit_message_text(t(lang, "welcome"), parse_mode="Markdown")
-
-async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str, lang: str):
-    msg = await update.message.reply_text(t(lang, "analyzing"), parse_mode="Markdown")
-    chat_id = update.effective_chat.id
-
+async def download_and_send_video(update: Update, url: str):
+    msg = await update.message.reply_text("🔎 Video yuklanmoqda...")
+    file_id = uuid.uuid4().hex[:8]
+    outtmpl = f"video_{file_id}.%(ext)s"
+    
     loop = asyncio.get_running_loop()
-    video_url = await loop.run_in_executor(None, lambda: get_instagram_video(url))
+    file_path = None
 
-    if video_url:
-        try:
+    try:
+        def extract():
+            with yt_dlp.YoutubeDL(get_ydl_options(outtmpl)) as ydl:
+                info = ydl.extract_info(url, download=True)
+                return ydl.prepare_filename(info)
+
+        file_path = await loop.run_in_executor(None, extract)
+
+        with open(file_path, 'rb') as video:
+            await update.message.reply_video(video=video, caption="✅ Video tayyor!")
+        await msg.delete()
+
+    except Exception as e:
+        await msg.edit_text("❌ Videoni yuklab bo'lmadi. Linkni tekshiring.")
+    finally:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+
+async def search_and_send_music(update: Update, query: str):
+    msg = await update.message.reply_text(f"🔍 «{query}» qidirilmoqda...")
+    file_id = uuid.uuid4().hex[:8]
+    outtmpl = f"music_{file_id}.%(ext)s"
+    
+    loop = asyncio.get_running_loop()
+    mp3_path = None
+
+    try:
+        def extract():
+            opts = get_ydl_options(outtmpl, is_audio=True)
+            opts['default_search'] = 'ytsearch1:'
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(query, download=True)
+                if 'entries' in info and len(info['entries']) > 0:
+                    info = info['entries'][0]
+                
+                title = info.get('title', 'Musiqa')
+                base_path = ydl.prepare_filename(info)
+                base, _ = os.path.splitext(base_path)
+                return base + ".mp3", title
+
+        mp3_path, title = await loop.run_in_executor(None, extract)
+
+        if os.path.exists(mp3_path):
+            with open(mp3_path, 'rb') as audio:
+                await update.message.reply_audio(audio=audio, title=title, caption=f"🎧 {title}")
             await msg.delete()
-        except Exception:
-            pass
+        else:
+            await msg.edit_text("❌ Musiqa topilmadi.")
 
-        await context.bot.send_video(
-            chat_id=chat_id,
-            video=video_url,
-            caption=t(lang, "video_caption"),
-            parse_mode="Markdown"
-        )
-
-        token = uuid.uuid4().hex[:10]
-        pending_downloads[token] = {"url": url, "chat_id": chat_id}
-
-        keyboard = [[
-            InlineKeyboardButton(t(lang, "btn_yes"), callback_data=f"music:{token}:yes"),
-            InlineKeyboardButton(t(lang, "btn_no"), callback_data=f"music:{token}:no"),
-        ]]
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=t(lang, "ask_music"),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
-        await msg.edit_text(t(lang, "error_generic"), parse_mode="Markdown")
-
-async def on_music_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    lang = db_get_lang(update.effective_user.id)
-
-    _, token, choice = query.data.split(":")
-    data = pending_downloads.pop(token, None)
-
-    if not data:
-        await query.edit_message_text(t(lang, "session_expired"), parse_mode="Markdown")
-        return
-
-    if choice == "yes":
-        await query.edit_message_text("⏳ MP3 audio yuklanmoqda...", parse_mode="Markdown")
-        loop = asyncio.get_running_loop()
-        file_path = None
-        try:
-            file_path = await loop.run_in_executor(None, lambda: download_audio_direct(data["url"]))
-            with open(file_path, 'rb') as f:
-                await context.bot.send_audio(
-                    chat_id=data["chat_id"],
-                    audio=f,
-                    title="Audio",
-                    caption=t(lang, "audio_caption", title="Audio"),
-                    parse_mode="Markdown"
-                )
-            await query.delete_message()
-        except Exception as e:
-            logger.error(f"MP3 Error: {e}")
-            await query.edit_message_text(t(lang, "error_generic"), parse_mode="Markdown")
-        finally:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-    else:
-        try:
-            await query.delete_message()
-        except Exception:
-            pass
-
-SUPPORTED_DOMAINS = ["instagram.com", "tiktok.com", "youtube.com", "youtu.be"]
+    except Exception as e:
+        await msg.edit_text("❌ Musiqani yuklashda xatolik yuz berdi.")
+    finally:
+        if mp3_path and os.path.exists(mp3_path):
+            os.remove(mp3_path)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    db_add_user(user_id)
-    lang = db_get_lang(user_id)
     text = update.message.text.strip()
-
+    
     if any(domain in text for domain in SUPPORTED_DOMAINS):
-        await handle_link(update, context, text, lang)
+        await download_and_send_video(update, text)
     else:
-        await update.message.reply_text("📥 Yuklab olish uchun Instagram, TikTok yoki YouTube havolasini yuboring!")
+        await search_and_send_music(update, text)
 
+# ==========================================
+# ASOSIY ISHGA TUSHIRISH
+# ==========================================
 def main():
-    db_init()
-    Thread(target=run_health_check_server, daemon=True).start()
-
     app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(on_language_chosen, pattern=r"^lang:"))
-    app.add_handler(CallbackQueryHandler(on_music_choice, pattern=r"^music:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot ishga tushdi...")
+    print("Bot muvaffaqiyatli ishga tushdi...")
     app.run_polling()
 
 if __name__ == "__main__":
