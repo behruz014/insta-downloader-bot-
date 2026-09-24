@@ -1,0 +1,43 @@
+import subprocess
+import sys
+import os
+
+def check_for_updates_and_restart():
+    """GitHub'dan yangilanishlarni tekshiradi va o'zgarish bo'lsa botni qayta ishga tushiradi"""
+    try:
+        # Lokaldagi o'zgarishlarni GitHub bilan solishtirish uchun fetch qilamiz
+        subprocess.run(["git", "fetch"], check=True, capture_output=True)
+        
+        # Local va Remote (GitHub) o'rtasidagi farqni tekshiramiz
+        status = subprocess.run(["git", "status", "-uno"], capture_output=True, text=True, check=True).stdout
+        
+        if "Your branch is behind" in status:
+            print("🔄 Yangilanish topildi! Kod tortib olinmoqda...")
+            subprocess.run(["git", "pull"], check=True)
+            print("✅ Bot yangilandi, qayta ishga tushirilmoqda...")
+            # Bot jarayonini yangidan ishga tushirish
+            os.execv(sys.executable, ['python'] + sys.argv)
+        else:
+            print("✅ Bot allaqachon eng so'nggi versiyada.")
+    except Exception as e:
+        print(f"⚠️ Yangilanishni tekshirishda xatolik: {e}")
+def main():
+    # Ishga tushish bilanoq yangilanishni tekshirish
+    check_for_updates_and_restart()
+    
+    app = Application.builder().token(BOT_TOKEN).post_init(_set_bot_username).build()
+    # ... qolgan handlerlar va ishga tushirish qismi ...
+    app.run_polling()
+import asyncio
+
+async def auto_update_loop():
+    while True:
+        await asyncio.sleep(3600)  # Har 1 soatda bir marta tekshiradi (3600 sekund)
+        try:
+            # Fon rejimida git pull qilish
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(None, subprocess.run, ["git", "pull"], True, None, None, True, True)
+            # Agar yangi kod kelgan bo'lsa, jarayonni yangilash
+            # (Eslatma: bu yerda to'g'ridan-to'g'ri os.execv chaqirilsa bot fon tsiklidan qayta boshlanadi)
+        except Exception as e:
+            print(f"Avto-yangilash xatoligi: {e}")
