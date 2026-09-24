@@ -1,0 +1,14 @@
+def main():
+    # Har safar bot ishga tushganda avtomatik yangilanishni tekshiradi
+    check_for_updates_and_restart()
+    
+    app = Application.builder().token(BOT_TOKEN).post_init(_set_bot_username).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("round", make_round_video))
+    app.add_handler(CallbackQueryHandler(button_callback))
+    app.add_handler(MessageHandler(filters.VIDEO | filters.AUDIO | filters.VOICE | filters.document, handle_media_file))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    logger.info("Bot muvaffaqiyatli ishga tushdi...")
+    app.run_polling()
